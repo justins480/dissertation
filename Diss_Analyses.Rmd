@@ -1,0 +1,4058 @@
+---
+title: "Diss Analyses"
+author: "Justin Sanchez"
+date: "2024-05-20"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    theme: cosmo
+    highlight: tango
+    number_sections: true
+---
+
+
+```{r, include=FALSE, warning=FALSE}
+library(ggplot2)
+library(patchwork) 
+library(readxl)
+library(gridExtra)
+library(grid)
+library(dplyr)
+library(openxlsx)
+library(psych)
+library(Hmisc)
+library(htmltools)
+library(qgraph)
+library(corrplot)
+library(knitr)
+library(textmineR)
+library(tidytext)
+library(factoextra)
+library(wordcloud)
+library(RColorBrewer)
+library(SnowballC)
+library(caret)
+library(glmnet)
+
+# Windows laptop
+#Policing_Diss_Study_May_17_2024_13_19 <- read_excel("C:/Users/justi/Dropbox (ASU)/Diss/Data analysis/Policing Diss Study_May 17, 2024_13.19.xlsx")
+
+#prolific_data <- read_excel("C:/Users/justi/Dropbox (ASU)/Diss/Data analysis/prolific_export.xlsx")
+
+#Windows PC
+Policing_Diss_Study_May_17_2024_13_19 <- read_excel("E:/Dropbox (ASU)/Diss/Data analysis/Policing Diss Study_May 17, 2024_13.19.xlsx")
+
+prolific_data <- read_excel("E:/Dropbox (ASU)/Diss/Data analysis/prolific_export.xlsx")
+
+data_raw <- Policing_Diss_Study_May_17_2024_13_19
+
+# Creates a loop to see column names with their number
+for (i in seq_along(data_raw)) {
+  print(paste(i, colnames(data_raw)[i]))
+}
+
+# use this to delete rows and columns 
+data_clean <- data_raw[ -c (1), -c(1, 2, 3, 4, 5, 8, 10, 11, 12, 13, 14, 15, 16, 18)]
+
+# Converting to a dataframe
+df <- data.frame(data_clean)
+
+# Perform the left join to add the age column to df
+df <- df %>%
+  left_join(dplyr::select(prolific_data, Participant_id, age), by = c("prol_id" = "Participant_id"))
+
+df$age <- suppressWarnings(as.numeric(df$age)) 
+
+# Creates a loop to see column names with their number
+for (i in seq_along(df)) {
+  print(paste(i, colnames(df)[i]))
+}
+
+# Renaming the column "Duration (in seconds)" to "Duration"
+colnames(df)[colnames(df) == "Duration..in.seconds."] <- "Duration"
+
+# Convert "Duration" to numeric 
+df$Duration <- as.numeric(as.character(df$Duration))
+
+# Calculate the mean of "Duration", excluding NA values and outliers
+mean_duration <- mean(df$Duration[-c(16, 26)], na.rm = TRUE) / 60
+
+#Average minutes to complete
+print(mean_duration)
+describe(df$Duration)
+
+# Creates a ExPJ-mapping of text for dist_just, pol_effect, leg_cyn, expected_pj, global_pj, specific_pj, norm_leg, nonnorm_leg
+number_scores <- c("Strongly disagree" = 0, "Somewhat disagree" = 1, 
+                      "Neither agree nor disagree" = 2, "Somewhat agree" = 3, 
+                      "Strongly agree" = 4)
+
+# Creates a ExPJ-mapping of text for SDS
+true_false_scores <- c("False" = 0, "True" = 1)
+
+# Creates a ExPJ-mapping of text for BSC
+bsc_scores <- c("Not at all" = 0, "A little" = 1, 
+                   "Moderately" = 2, "Quite a bit" = 3, 
+                   "Very much" = 4)
+
+# Creates a ExPJ-mapping of text to numerical values
+closed_expect_scores <- c("The officer behaved more negatively than the expected behavior" = 0, "The officer behaved more positively than the expected behavior" = 1)
+
+# Creates a ExPJ-mapping of text to numerical values
+behavior_scores <- c("Far below expectations" = 0, "Below expectations" = 1, 
+                "Met expectations" = 2, "Exceeded expectations" = 3, 
+                "Far exceeded expectations" = 4)
+
+# Reverse coding
+reverse_score <- function(score) {
+  return(4 - score)  # Since your scores range from 0 to 4
+}
+
+# Assuming df is your data frame
+# Create a data frame with column indices and names
+column_data <- data.frame(Index = seq_along(df), Names = colnames(df))
+
+# Print column indices and names in the console
+for (i in seq_along(df)) {
+  print(paste(i, colnames(df)[i]))
+}
+
+# Determine the number of rows per section and total sections needed
+rows_per_section <- 20
+total_rows <- nrow(column_data)
+sections_per_page <- floor(8.5 / (rows_per_section / 6))  # Estimate sections per page based on row height
+total_sections <- ceiling(total_rows / rows_per_section)
+
+
+# Plotting sections
+current_row <- 1
+while (current_row <= total_rows) {
+  # Grid layout for sections on one page
+  grid_layout <- list()
+  for (section in 1:sections_per_page) {
+    if (current_row > total_rows) break
+    end_row <- min(current_row + rows_per_section - 1, total_rows)
+    # Extract subset of data for this section
+    subset_data <- column_data[current_row:end_row, ]
+    # Create a table grob for this subset
+    table_grob <- tableGrob(subset_data,
+                            theme = ttheme_default(
+                              core = list(fg_params = list(fontsize = 8)),  # Font size for table content
+                              colhead = list(fg_params = list(fontsize = 8, fontface = "bold")),  # Font size for headers
+                              rowhead = list(fg_params = list(fontsize = 8))  # Font size for row headers
+                            ))
+    grid_layout[[section]] <- table_grob
+    current_row <- end_row + 1
+  }
+  # Draw all table grobs on one page
+  do.call(grid.arrange, c(grid_layout, ncol = length(grid_layout)))
+  if (current_row <= total_rows) {
+    grid.newpage()
+  }
+}
+
+# Close the PDF device
+dev.off()
+
+# Loop through columns 06 to 30 - This is for columns prior to video conditions
+# Ensures the columns are treated as characters to avoid factor conversion issues
+for (i in 6:30) {
+  df[[i]] <- as.character(df[[i]])
+  df[[i]] <- number_scores[df[[i]]]
+}
+
+# Assume df is a dataframe and it has been modified as per the initial scoring
+# Reverse coding for "Q121...26" and "Q80"
+df$leg_cyn1R <- ifelse(!is.na(df$leg_cyn1R), reverse_score(df$leg_cyn1R), NA)
+df$leg_cyn4R <- ifelse(!is.na(df$leg_cyn4R), reverse_score(df$leg_cyn4R), NA)
+
+# Loop through columns 55:60 - Specific PJ
+for (i in 55:60) {
+  # Ensure the column is treated as character to avoid factor conversion issues
+  df[[i]] <- as.character(df[[i]])
+  
+  # Apply the response mapping to convert text to numbers
+  df[[i]] <- number_scores[df[[i]]]
+}
+
+# Loop through columns 67:83 - SDS
+for (i in 67:83) {
+  # Ensure the column is treated as character to avoid factor conversion issues
+  df[[i]] <- as.character(df[[i]])
+  
+  # Apply the response mapping to convert text to numbers
+  df[[i]] <- true_false_scores[df[[i]]]
+}
+
+# Reverse binary function for True-false
+reverse_binary <- function(value) {
+  return(1 - value)
+}
+
+# List of binary columns to reverse score
+binary_columns_to_reverse <- c("SDS1R", "SDS4R", "SDS6R", "SDS7R", "SDS11R", "SDS15R", "SDS17R")
+
+# Apply binary reverse scoring to each column
+for (col in binary_columns_to_reverse) {
+  df[[col]] <- ifelse(!is.na(df[[col]]), reverse_binary(df[[col]]), NA)
+}
+
+# Loop through columns 84:93 - For legitimacy and Non-normative legitimacy
+for (i in 84:93) {
+  # Ensure the column is treated as character to avoid factor conversion issues
+  df[[i]] <- as.character(df[[i]])
+  
+  # Apply the response mapping to convert text to numbers
+  df[[i]] <- number_scores[df[[i]]]
+}
+
+# Loop through columns 94 to 106 - BSC
+for (i in 94:106) {
+  # Ensure the column is treated as character to avoid factor conversion issues
+  df[[i]] <- as.character(df[[i]])
+  
+  # Apply the response mapping to convert text to numbers
+  df[[i]] <- bsc_scores[df[[i]]]
+}
+
+# List of columns to apply reverse coding
+columns_to_reverse <- c("BSC2R", "BSC3R", "BSC4R", "BSC5R", "BSC7R", "BSC9R", "BSC10R", "BSC12R", "BSC13R")
+
+# Apply reverse scoring using a loop
+for (col in columns_to_reverse) {
+  df[[col]] <- ifelse(!is.na(df[[col]]), reverse_score(df[[col]]), NA)
+}
+
+df <- df %>%
+  mutate(video_condition = case_when(
+    !is.na(neg_vid2_First.Click) ~ 0,   # Assign 0 if neg_vid3_First.Click is not NA
+    !is.na(neut_vid2_First.Click) ~ 1,  # Assign 1 if neut_vid3_First.Click is not NA
+    !is.na(pos_vid2_First.Click) ~ 2    # Assign 2 if pos_vid3_First.Click is not NA
+  ))
+
+# Subset df to include only the specified columns
+df_conditions <- df %>%
+  dplyr::select(video_condition, 
+         pos_vid2_First.Click, pos_vid2_Last.Click, pos_vid2_Page.Submit, pos_vid2_Click.Count,
+         neut_vid2_First.Click, neut_vid2_Last.Click, neut_vid2_Page.Submit, neut_vid2_Click.Count,
+         neg_vid2_First.Click, neg_vid2_Last.Click, neg_vid2_Page.Submit, neg_vid2_Click.Count, prol_id)
+
+# Convert the necessary columns to numeric if they are not already
+df_conditions <- df_conditions %>%
+  mutate(
+    pos_vid2_Last.Click = as.numeric(as.character(pos_vid2_Last.Click)),
+    pos_vid2_Page.Submit = as.numeric(as.character(pos_vid2_Page.Submit)),
+    neut_vid2_Last.Click = as.numeric(as.character(neut_vid2_Last.Click)),
+    neut_vid2_Page.Submit = as.numeric(as.character(neut_vid2_Page.Submit)),
+    neg_vid2_Last.Click = as.numeric(as.character(neg_vid2_Last.Click)),
+    neg_vid2_Page.Submit = as.numeric(as.character(neg_vid2_Page.Submit)),
+    neg_vid2_First.Click = as.numeric(as.character(neg_vid2_First.Click)),
+    pos_vid2_First.Click = as.numeric(as.character(pos_vid2_First.Click)),
+    neut_vid2_First.Click = as.numeric(as.character(neut_vid2_First.Click))
+    
+  )
+
+# Calculate the total_time based on conditions and add it as a new column, reversing the order of subtraction
+df_conditions <- df_conditions %>%
+  mutate(
+    total_time = case_when(
+      !is.na(pos_vid2_First.Click) & !is.na(pos_vid2_Page.Submit) ~ pos_vid2_Page.Submit - pos_vid2_First.Click,
+      !is.na(neut_vid2_First.Click) & !is.na(neut_vid2_Page.Submit) ~ neut_vid2_Page.Submit - neut_vid2_First.Click,
+      !is.na(neg_vid2_First.Click) & !is.na(neg_vid2_Page.Submit) ~ neg_vid2_Page.Submit - neg_vid2_First.Click,
+      TRUE ~ NA_real_  # Default case to handle any NA values or other unexpected cases
+    )
+  )
+
+df_conditions <- df_conditions %>%
+  mutate(
+    neg_vid2_Click.Count = as.numeric(as.character(neg_vid2_Click.Count)),
+    pos_vid2_Click.Count = as.numeric(as.character(pos_vid2_Click.Count)),
+    neut_vid2_Click.Count = as.numeric(as.character(neut_vid2_Click.Count)),
+    total_clicks = coalesce(neg_vid2_Click.Count, 0) +
+      coalesce(pos_vid2_Click.Count, 0) +
+      coalesce(neut_vid2_Click.Count, 0)
+  )
+
+# Display the trimmed dataframe (optional)
+print(df_conditions)
+
+# Exports df to an excel file
+write.xlsx(df_conditions, "E:/Dropbox (ASU)/Diss/Data analysis/df_conditions.xlsx")
+
+write.xlsx(df, "E:/Dropbox (ASU)/Diss/Data analysis/df_clean.xlsx")
+
+# Apply the mapping to convert text to numbers
+df$closed_expect1 <- closed_expect_scores[df$closed_expect1]
+
+# Apply the mapping to convert text to numbers
+df$closed_expect2 <- behavior_scores[df$closed_expect2]
+
+# Calculate the mean of columns 06 to 10 for each row and create a new column 'dist_just'
+df$dist_just <- rowMeans(df[, 6:10], na.rm = TRUE)
+
+# Calculate the mean of columns 11 to 13 for each row and create a new column 'pol_effect'
+df$pol_effect <- rowMeans(df[, 11:13], na.rm = TRUE)
+
+# Calculate the mean of columns 14 to 18 for each row and create a new column 'legal_cyn'
+df$legal_cyn <- rowMeans(df[, 14:18], na.rm = TRUE)
+
+# Calculate the mean of columns 19 to 24 for each row and create a new column 'expected_pj'
+df$expected_pj <- rowMeans(df[, 19:24], na.rm = TRUE)
+
+# Calculate the mean of columns 25 to 30 for each row and create a new column 'global_pj'
+df$global_pj <- rowMeans(df[, 25:30], na.rm = TRUE)
+
+# Calculate the mean of columns 55 to 60 for each row and create a new column 'specific_pj'
+df$specific_pj <- rowMeans(df[, 55:60], na.rm = TRUE)
+
+# Calculate the mean of columns 67 to 83 for each row and create a new column 'SDS'
+df$SDS <- rowMeans(df[, 67:83], na.rm = TRUE)
+
+# Calculate the mean of columns 84 to 88 for each row and create a new column 'norm_leg'
+df$norm_leg <- rowMeans(df[, 84:88], na.rm = TRUE) 
+
+# Calculate the mean of columns 89 to 93 for each row and create a new column 'nonnorm_leg'
+df$nonnorm_leg <- rowMeans(df[, 89:93], na.rm = TRUE)
+
+# Calculate the mean of columns 94 to 105 for each row and create a new column 'nonnorm_leg'
+df$BSC <- rowMeans(df[, 94:105], na.rm = TRUE)
+
+# Define the column names
+expected_pj_cols <- c("expected_pj1", "expected_pj2", "expected_pj3", "expected_pj4", "expected_pj5", "expected_pj6")
+specific_pj_cols <- c("specific_pj1", "specific_pj2", "specific_pj3", "specific_pj4", "specific_pj5", "specific_pj6")
+
+# Ensure dataframe df is available and correctly formatted
+# Calculating differences for each pair of columns
+df <- df %>%
+  mutate(
+    diff1 = specific_pj1 - expected_pj1,
+    diff2 = specific_pj2 - expected_pj2,
+    diff3 = specific_pj3 - expected_pj3,
+    diff4 = specific_pj4 - expected_pj4,
+    diff5 = specific_pj5 - expected_pj5,
+    diff6 = specific_pj6 - expected_pj6
+  )
+
+# Optional check - print df to see the new columns
+print(head(df))
+
+# Calculate the mean of columns 170 to 175 for each row and create a new column 'diff_scores'
+df$diff_scores <- rowMeans(df[, 170:175], na.rm = TRUE)
+
+df <- df %>%
+  mutate(
+    Male = recode(gender, "Male" = 0, "Female" = 1, "Other" = 2),
+    Male_split = recode(Male, `0` = 0, `1` = 1, `2` = 1),
+    ethnicity = recode(ethnicity, 
+                       "No" = 0, 
+                       "Yes, Mexican, Mexican American, Chicano" = 1, 
+                       "Yes, Puerto Rican" = 2, 
+                       "Yes, Cuban" = 3, 
+                       "Yes, other Hispanic, Latino, or Spanish origin" = 4),
+    race = recode(race, 
+                  "White" = 0, 
+                  "Black or African American" = 1, 
+                  "American Indian or Alaska Native" = 2, 
+                  "Asian" = 3, 
+                  "Middle Eastern" = 4, 
+                  "Pacific Islander" = 5, 
+                  "Other" = 6),
+    income = recode(income, 
+                    "Less than $34,999" = 0, 
+                    "$35k-$49,999" = 1, 
+                    "$50,000-$74,999" = 2, 
+                    "$75k,000-$99,999" = 3, 
+                    "$100k or more" = 4),
+    educ = recode(educ, 
+                  "Less than high school" = 0, 
+                  "High school or equivalent diploma, some college, or associate’s degree." = 1, 
+                  "Bachelor’s degree" = 2, 
+                  "Master’s, professional, or doctoral degree" = 3),
+    occup = recode(occup, 
+                   "Unemployed" = 0, 
+                   "Unskilled manual labor" = 1, 
+                   "Skilled manual labor" = 2, 
+                   "Professional labor" = 3),
+    married = recode(married, 
+                     "Never married" = 0, 
+                     "Not married, but in long term relationship" = 1, 
+                     "Married" = 2, 
+                     "Divorced" = 3, 
+                     "Widowed" = 4),
+    region = recode(country_area, 
+                          "Northeast" = 0, 
+                          "Midwest" = 1, 
+                          "West" = 2, 
+                          "South" = 3),
+    region_split = recode(region, `0` = 0, `1` = 0, `2` = 0, '3' = 1),
+    community = recode(community, 
+                       "Urban" = 0, 
+                       "Suburban" = 1, 
+                       "Rural" = 2),
+    community_split = recode(community, `0` = 0, `1` = 0, `2` = 1),
+    pol_orient = recode(pol_orient, 
+                        "Democrat" = 0, 
+                        "Republican" = 1, 
+                        "Independent" = 2, 
+                        "Socialist" = 3, 
+                        "Libertarian" = 4, 
+                        "Something else" = 5, 
+                        "I do not identify with any political party" = 6),
+    pol_scale = recode(pol_scale, 
+                       "Very conservative" = 0, 
+                       "Conservative" = 1, 
+                       "Slightly conservative" = 2, 
+                       "Centrist" = 3, 
+                       "Slightly Liberal" = 4, 
+                       "Liberal" = 5, 
+                       "Very Liberal" = 6),
+    homeown = recode(homeown, 
+                     "Renter" = 0, 
+                     "Homeowner" = 1),
+    citizen = recode(citizen, 
+                     "No" = 0, 
+                     "Yes" = 1),
+    pol_fam = recode(pol_fam, 
+                     "No" = 0, 
+                     "Yes" = 1),
+    pol_contact = recode(pol_contact, 
+                         "No" = 0, 
+                         "Yes" = 1),
+    pol_type = recode(pol_type, 
+                      "I called the police to report a crime." = 0, 
+                      "I called the police to report an accident." = 1, 
+                      "I called the police to request information" = 2, 
+                      "I was pulled over by the police while I was driving." = 3, 
+                      "Something else" = 4),
+    arrested = recode(arrested, 
+                      "No" = 0, 
+                      "Yes" = 1),
+    check1 = recode(check1, 
+                    "Not at all honest" = 0, 
+                    "A little honest" = 1, 
+                    "Moderately honest" = 2, 
+                    "Very honest" = 3, 
+                    "Completely honest" = 4),
+    check2 = recode(check2, 
+                    "Not carefully at all" = 0, 
+                    "Not very carefully" = 1, 
+                    "Moderately careful" = 2, 
+                    "Carefully" = 3, 
+                    "Extremely carefully" = 4),
+    check3 = recode(check3, 
+                    "Definitely not" = 0, 
+                    "Probably not" = 1, 
+                    "Might or might not" = 2, 
+                    "Probably yes" = 3, 
+                    "Definitely yes" = 4)
+  )
+
+df <- df %>%
+  mutate(
+    occup = recode(occup,
+                   "Unemployed" = 0,
+                   "Unskilled manual labor" = 1,
+                   "Skilled manual labor" = 2,
+                   "Professional labor" = 3
+    )
+  )
+
+# Dichotomize the recoded race variable into White and Non-White
+df <- df %>%
+  mutate(race_split = ifelse(race == 0, 0, 1))
+
+
+# Extract only the relevant columns from the dataframe
+df_text <- df %>%
+  select(video_condition, open_quest1_4, open_quest1_5, open_quest1_6, open_quest1_7, open_quest1_8, open_quest2)
+
+# Combine the columns related to the first question into a single column
+df_text$combined_quest1 <- apply(df_text[, c('open_quest1_4', 'open_quest1_5', 'open_quest1_6', 'open_quest1_7', 'open_quest1_8')], 1, paste, collapse = " ")
+
+# Remove rows where all six columns are missing or invalid ("NA", "na", "NA_NA", "na_na", "")
+df_text <- df_text %>%
+  filter(!(is.na(open_quest1_4) & is.na(open_quest1_5) & is.na(open_quest1_6) & is.na(open_quest1_7) & is.na(open_quest1_8) & is.na(open_quest2)) &
+         !(open_quest1_4 %in% c("NA", "na", "NA_NA", "na_na", "") & open_quest1_5 %in% c("NA", "na", "NA_NA", "na_na", "") & 
+           open_quest1_6 %in% c("NA", "na", "NA_NA", "na_na", "") & open_quest1_7 %in% c("NA", "na", "NA_NA", "na_na", "") & 
+           open_quest1_8 %in% c("NA", "na", "NA_NA", "na_na", "") & open_quest2 %in% c("NA", "na", "NA_NA", "na_na", "")))
+
+# Split the dataframe into three separate dataframes based on the video_condition
+df_text0 <- df_text %>% filter(video_condition == 0)
+df_text1 <- df_text %>% filter(video_condition == 1)
+df_text2 <- df_text %>% filter(video_condition == 2)
+
+# Basic statistical summary 
+summary(df$dist_just)
+summary(df$pol_effect)
+summary(df$legal_cyn)
+summary(df$expected_pj)
+summary(df$global_pj)
+summary(df$specific_pj)
+summary(df$SDS)
+summary(df$norm_leg)
+summary(df$nonnorm_leg)
+summary(df$BSC)
+summary(df$diff_scores)
+
+```
+
+```{r, echo=FALSE}
+# Sum across the specified columns to count total number of characters
+df$open_quest <- rowSums(sapply(df[, c("open_quest1_4", "open_quest1_5", "open_quest1_6", "open_quest1_7", "open_quest1_8")], nchar), na.rm = TRUE)
+
+# Function to count words in a string
+count_words <- function(x) {
+  if (is.na(x) || x == "") {
+    return(0)
+  } else {
+    return(length(unlist(strsplit(as.character(x), "\\s+"))))
+  }
+}
+
+# Apply the word count function to each of the specified columns and sum the results for each row
+df$open_quest_count_words <- rowSums(
+  sapply(df[, c("open_quest1_4", "open_quest1_5", "open_quest1_6", "open_quest1_7", "open_quest1_8")], function(col) {
+    sapply(col, count_words)
+  }), na.rm = TRUE
+)
+
+# Calculate the mean word count
+mean_open_quest_count_words <- mean(df$open_quest_count_words, na.rm = TRUE)
+
+# Calculate the total and mean for open_quest
+total_open_quest <- sum(df$open_quest, na.rm = TRUE)
+mean_open_quest <- mean(df$open_quest, na.rm = TRUE)
+
+# Create a data frame to hold the summary information
+summary_df <- data.frame(
+  `Total Words` = sum(df$open_quest_count_words, na.rm = TRUE),
+  `Mean Words` = mean_open_quest_count_words,
+  `Total Characters` = total_open_quest,
+  `Mean Characters` = mean_open_quest
+)
+
+# Display the table using knitr::kable
+knitr::kable(summary_df, col.names = c("Total Words", "Mean Words", "Total Characters", "Mean Characters"), caption = "Summary of Responses and Word Counts", digits = 2)
+```
+
+# Descriptives
+
+## Conditions
+
+```{r, echo=FALSE}
+# Create a data frame for the table of video conditions
+video_conditions <- data.frame(
+  `Video Conditions` = c("0 = Negative condition", "1 = Neutral condition", "2 = Positive condition", "Total"),
+  Count = c(170, 171, 162, 503)
+)
+
+# Print the table of video conditions
+knitr::kable(video_conditions, caption = "Number of Participants per Video Condition and Total")
+
+# Assuming your dataframe is named df
+# Select the relevant variables for PCA
+data_for_pca <- df[, c("educ", "occup", "income")]
+
+# Perform PCA using the principal function
+pca_result <- principal(data_for_pca, nfactors = 1, scores = TRUE, rotate = "none")
+
+# Extract the PCA scores and rename the combined factor to SES
+df$SES <- pca_result$scores[, 1]
+
+# Extract the eigenvalues from the PCA
+eigenvalues <- pca_result$values
+
+# Extract the factor loadings from the PCA
+factor_loadings <- as.data.frame(pca_result$loadings[, 1])
+
+# Create a data frame for the eigenvalues and factor loadings
+eigenvalues_df <- data.frame(
+  Factor = paste("Factor", 1:length(eigenvalues)),
+  Eigenvalue = eigenvalues,
+  Educ_Loading = factor_loadings[1, ],
+  Occup_Loading = factor_loadings[2, ],
+  Income_Loading = factor_loadings[3, ]
+)
+
+# Create a presentable table using kable
+kable(eigenvalues_df, col.names = c("Factor", "Eigenvalue", "Education Loading", "Occupation Loading", "Income Loading"), 
+      caption = "Eigenvalues and Factor Loadings for Socio-economic Status Principal Components Analysis.
+      I combined Income, Education, and Occupation to create a single factor called SES.")
+
+```
+
+## Descriptives Table
+
+```{r combined-descriptive-stats, echo=FALSE, warning=FALSE}
+# Select relevant variables for descriptive statistics
+vars_to_describe <- df[, c("dist_just", "pol_effect", "legal_cyn", "expected_pj", "global_pj", 
+                           "specific_pj", "SDS", "BSC", "norm_leg", "nonnorm_leg",
+                           "Male", "income", "educ", "occup", "pol_scale", "citizen", 
+                           "pol_fam", "pol_contact", "arrested", "age", "race_split", "community_split", "region_split")]
+
+# Compute descriptive statistics
+descriptive_stats <- psych::describe(vars_to_describe, na.rm = TRUE)
+
+# Remove the 'mad' and 'trimmed' columns
+descriptive_stats <- descriptive_stats[, !colnames(descriptive_stats) %in% c("mad", "trimmed", "vars")]
+
+# Calculate the correct range, ensuring 0 is included as a valid value
+descriptive_stats$range <- sapply(vars_to_describe, function(x) {
+  if (is.numeric(x)) {
+    min_val <- round(min(x, na.rm = TRUE), 2)
+    max_val <- round(max(x, na.rm = TRUE), 2)
+    paste0(min_val, " - ", max_val)
+  } else {
+    NA
+  }
+})
+
+# Round the remaining columns to two decimal places
+descriptive_stats[] <- lapply(descriptive_stats, function(x) if(is.numeric(x)) round(x, 2) else x)
+
+# Define custom row names for the statistics
+new_row_names <- c("Distributive Justice", "Police Effectiveness", "Legal Cynicism", 
+                   "Expected PJ", "Global Procedural Justice", "Specific Procedural Justice", 
+                   "Social Desirability Scale", "Self Control", "Normative Legitimacy", "Non-norm Legitimacy",
+                   "Male dichotomized (Male = 0)", "Income ($50,000-$74,999 = 2)", "Education (Bachelor’s degree = 2)", "Occupation (Unemployed = 0)",
+                   "Political Scale (Centrist = 3)", "Citizen (No = 0)", 
+                   "Police Family (No = 0)", "Police Contact (No = 0)", "Arrested", "Age", "Race dichotomized (White = 0)", "Type of community (Rural = 1)", "Region of country (South = 1)")
+
+# Set the new row names
+rownames(descriptive_stats) <- new_row_names
+
+# Display the descriptive statistics in a nice table format, rounded to two decimal places
+knitr::kable(descriptive_stats, caption = "Combined Descriptive Statistics", digits = 2)
+```
+
+## Bar Graphs
+
+```{r, echo=FALSE, warning=FALSE}
+# Define labels for the recoded variables
+community_labels <- c("Urban", "Suburban", "Rural")
+region_labels <- c("Northeast", "Midwest", "West", "South")
+married_labels <- c("Never married", "In long term relationship", "Married", "Divorced", "Widowed")
+occup_labels <- c("Unemployed", "Unskilled manual labor", "Skilled manual labor", "Professional labor")
+race_labels <- c("White", "Black or 
+African American", "American Indian or
+                 Alaska Native", "Asian", "Middle Eastern", "Pacific Islander", "Other")
+
+# Create a function to map numerical values to their corresponding labels
+map_labels <- function(df, column, labels) {
+  df[[column]] <- factor(df[[column]], levels = 0:(length(labels) - 1), labels = labels)
+  return(df)
+}
+
+# Apply the mapping function to each variable
+df <- map_labels(df, "community", community_labels)
+df <- map_labels(df, "region", region_labels)
+df <- map_labels(df, "married", married_labels)
+df <- map_labels(df, "occup", occup_labels)
+df <- map_labels(df, "race", race_labels)
+
+# Define full names for variables
+full_names <- c("community" = "Community", "region" = "Region", "married" = "Marital Status", 
+                "occup" = "Occupation", "race" = "Race")
+
+# List of variables to plot
+variables <- c("community", "region", "married", "occup", "race")
+
+# Create horizontal bar plots for each variable
+plots <- list()
+for (var in variables) {
+  # Remove NA values
+  df_var <- df %>% filter(!is.na(.data[[var]]))
+  
+  # Calculate the frequency count
+  freq_count <- nrow(df_var)
+  
+  p <- ggplot(df_var, aes_string(x = var)) +
+    geom_bar(fill = "#69b3a2", color = "black", alpha = 0.7) +
+    coord_flip() +  # Flip coordinates to make the bar plot horizontal
+    geom_text(stat='count', aes(label=..count..), hjust=-0.1) +  # Add frequency totals at the end of each bar
+    labs(title = paste(full_names[var], "- n =", freq_count),
+         x = full_names[var],
+         y = "Frequency") +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      plot.margin = margin(10, 10, 10, 10)
+    )
+  
+  plots[[var]] <- p
+}
+
+# Display all plots
+for (var in variables) {
+  print(plots[[var]])
+}
+```
+
+
+# Cronbach's Alphas 
+Boxplots, and Histograms
+
+## Distributive Justice
+
+```{r, echo=FALSE, warning=FALSE}
+# Calculate Cronbach's alpha
+alpha(df[, c("dist_just1", "dist_just2", "dist_just3", "dist_just4", "dist_just5")])
+
+# Calculate the mean of 'dist_just'
+mean_dist_just <- mean(df$dist_just, na.rm = TRUE)
+
+# Create the boxplot for 'dist_just' with mean label
+ggplot(df, aes(x = "", y = dist_just)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_dist_just), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_dist_just, label = paste("Mean =", round(mean_dist_just, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of Dist_just with Jitter", y = "Dist_just") +
+  theme_minimal()
+
+# Create a histogram for the 'dist_just' variable with mean line but without the text label
+ggplot(df, aes(x = dist_just)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_dist_just), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Distributive Justice",
+       x = "Distributive Justice",
+       y = "Frequency") +
+  theme_minimal()
+```
+
+## Police Effectiveness
+
+```{r, echo=FALSE, warning=FALSE}
+# Calculate Cronbach's alpha
+alpha_pol_effect <- alpha(df[, c("pol_effect1", "pol_effect2", "pol_effect3")])
+print(alpha_pol_effect)
+
+# Calculate the mean of 'pol_effect'
+mean_pol_effect <- mean(df$pol_effect, na.rm = TRUE)
+
+# Create the boxplot for 'pol_effect' with mean label
+boxplot_pol_effect <- ggplot(df, aes(x = "", y = pol_effect)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_pol_effect), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_pol_effect, label = paste("Mean =", round(mean_pol_effect, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of Pol_effect with Jitter", y = "Pol_effect") +
+  theme_minimal()
+
+# Create a histogram for the 'pol_effect' variable with mean label
+histogram_pol_effect <- ggplot(df, aes(x = pol_effect)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_pol_effect), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Political Efficacy",
+       x = "Political Efficacy",
+       y = "Frequency") +
+  theme_minimal()
+
+print(boxplot_pol_effect)
+print(histogram_pol_effect)
+```
+
+## Legal Cynicism 
+
+```{r, echo=FALSE, warning=FALSE}
+# Calculate Cronbach's alpha
+alpha_legal_cyn <- alpha(df[, c("leg_cyn1R", "leg_cyn2", "leg_cyn3", "leg_cyn4R", "leg_cyn5")])
+print(alpha_legal_cyn)
+
+# Calculate the mean of 'legal_cyn'
+mean_legal_cyn <- mean(df$legal_cyn, na.rm = TRUE)
+
+# Create the boxplot for 'legal_cyn' with mean label
+boxplot_legal_cyn <- ggplot(df, aes(x = "", y = legal_cyn)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_legal_cyn), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_legal_cyn, label = paste("Mean =", round(mean_legal_cyn, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of Legal Cynicism with Jitter", y = "Legal Cynicism") +
+  theme_minimal()
+
+# Create a histogram for the 'legal_cyn' variable with mean label
+histogram_legal_cyn <- ggplot(df, aes(x = legal_cyn)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_legal_cyn), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Legal Cynicism",
+       x = "Legal Cynicism",
+       y = "Frequency") +
+  theme_minimal()
+
+# Print both plots
+print(boxplot_legal_cyn)
+print(histogram_legal_cyn)
+```
+
+## Expected PJ
+
+```{r, echo=FALSE, warning=FALSE}
+# Calculate Cronbach's alpha
+alpha_expected_pj <- alpha(df[, c("expected_pj1", "expected_pj2", "expected_pj3", "expected_pj4", "expected_pj5", "expected_pj6")])
+print(alpha_expected_pj)
+
+# Calculate the mean of 'expected_pj'
+mean_expected_pj <- mean(df$expected_pj, na.rm = TRUE)
+
+# Create the boxplot for 'expected_pj' with mean label
+boxplot_expected_pj <- ggplot(df, aes(x = "", y = expected_pj)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_expected_pj), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_expected_pj, label = paste("Mean =", round(mean_expected_pj, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of Expected PJ with Jitter", y = "Expected PJ") +
+  theme_minimal()
+
+# Create a histogram for the 'expected_pj' variable with mean label
+histogram_expected_pj <- ggplot(df, aes(x = expected_pj)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_expected_pj), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Expected PJ",
+       x = "Expected PJ",
+       y = "Frequency") +
+  theme_minimal()
+
+# Print both plots
+print(boxplot_expected_pj)
+print(histogram_expected_pj)
+```
+
+## Global Procedural Justice
+
+```{r, echo=FALSE, warning=FALSE}
+# Calculate Cronbach's alpha
+alpha_global_pj <- alpha(df[, c("global_pj1", "global_pj2", "global_pj3", "global_pj4", "global_pj5", "global_pj6")])
+print(alpha_global_pj)
+
+# Calculate the mean of 'global_pj'
+mean_global_pj <- mean(df$global_pj, na.rm = TRUE)
+
+# Create the boxplot for 'global_pj' with mean label
+boxplot_global_pj <- ggplot(df, aes(x = "", y = global_pj)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_global_pj), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_global_pj, label = paste("Mean =", round(mean_global_pj, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of Global PJ with Jitter", y = "Global PJ") +
+  theme_minimal()
+
+# Create a histogram for the 'global_pj' variable with mean label
+histogram_global_pj <- ggplot(df, aes(x = global_pj)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_global_pj), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Global PJ",
+       x = "Global PJ",
+       y = "Frequency") +
+  theme_minimal()
+
+# Print both plots
+print(boxplot_global_pj)
+print(histogram_global_pj)
+```
+
+## Specific Procedural Justice
+
+```{r, echo=FALSE, warning=FALSE}
+# Calculate Cronbach's alpha
+alpha_specific_pj <- alpha(df[, c("specific_pj1", "specific_pj2", "specific_pj3", "specific_pj4", "specific_pj5", "specific_pj6")])
+print(alpha_specific_pj)
+
+# Calculate the mean of 'specific_pj'
+mean_specific_pj <- mean(df$specific_pj, na.rm = TRUE)
+
+# Create the boxplot for 'specific_pj' with mean label
+boxplot_specific_pj <- ggplot(df, aes(x = "", y = specific_pj)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_specific_pj), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_specific_pj, label = paste("Mean =", round(mean_specific_pj, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of Specific PJ with Jitter", y = "Specific PJ") +
+  theme_minimal()
+
+# Create a histogram for the 'specific_pj' variable with mean label
+histogram_specific_pj <- ggplot(df, aes(x = specific_pj)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_specific_pj), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Specific PJ",
+       x = "Specific PJ",
+       y = "Frequency") +
+  theme_minimal()
+
+# Print both plots
+print(boxplot_specific_pj)
+print(histogram_specific_pj)
+```
+
+## Normative Legitimacy
+
+```{r, echo=FALSE, warning=FALSE}
+# Calculate Cronbach's alpha
+alpha_norm_leg <- alpha(df[, c("norm_leg1", "norm_leg2", "norm_leg3", "norm_leg4", "norm_leg5")])
+print(alpha_norm_leg)
+
+# Calculate the mean of 'norm_leg'
+mean_norm_leg <- mean(df$norm_leg, na.rm = TRUE)
+
+# Create the boxplot for 'norm_leg' with mean label
+boxplot_norm_leg <- ggplot(df, aes(x = "", y = norm_leg)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_norm_leg), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_norm_leg, label = paste("Mean =", round(mean_norm_leg, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of Norm Leg with Jitter", y = "Norm Leg") +
+  theme_minimal()
+
+# Create a histogram for the 'norm_leg' variable with mean label
+histogram_norm_leg <- ggplot(df, aes(x = norm_leg)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_norm_leg), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Norm Leg",
+       x = "Norm Leg",
+       y = "Frequency") +
+  theme_minimal()
+
+# Print both plots
+print(boxplot_norm_leg)
+print(histogram_norm_leg)
+```
+
+## Non-normative Legitimacy
+
+```{r, echo=FALSE, warning=FALSE}
+# Calculate Cronbach's alpha
+alpha_nonnorm_leg <- alpha(df[, c("nonnorm_leg1", "nonnorm_leg2", "nonnorm_leg3", "nonnorm_leg4", "nonnorm_leg5")])
+print(alpha_nonnorm_leg)
+
+# Calculate the mean of 'nonnorm_leg'
+mean_nonnorm_leg <- mean(df$nonnorm_leg, na.rm = TRUE)
+
+# Create the boxplot for 'nonnorm_leg' with mean label
+boxplot_nonnorm_leg <- ggplot(df, aes(x = "", y = nonnorm_leg)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_nonnorm_leg), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_nonnorm_leg, label = paste("Mean =", round(mean_nonnorm_leg, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of Nonnorm Leg with Jitter", y = "Nonnorm Leg") +
+  theme_minimal()
+
+# Create a histogram for the 'nonnorm_leg' variable with mean label
+histogram_nonnorm_leg <- ggplot(df, aes(x = nonnorm_leg)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_nonnorm_leg), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Nonnorm Leg",
+       x = "Nonnorm Leg",
+       y = "Frequency") +
+  theme_minimal()
+
+# Print both plots
+print(boxplot_nonnorm_leg)
+print(histogram_nonnorm_leg)
+```
+
+## Difference Scores
+This is the difference between expected procedural justice and specific procedural justice.
+
+```{r, echo=FALSE, warning=FALSE}
+# Assuming your dataframe is named df
+# Calculate Cronbach's alpha for diff_scores components
+alpha_diff_scores <- alpha(df[, c("diff1", "diff2", "diff3", "diff4", "diff5", "diff6")])
+print(alpha_diff_scores)
+
+# Calculate the mean of 'diff_scores'
+mean_diff_scores <- mean(df$diff_scores, na.rm = TRUE)
+
+# Create the boxplot for 'diff_scores' with mean label
+boxplot_diff_scores <- ggplot(df, aes(x = "", y = diff_scores)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_diff_scores), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_diff_scores, label = paste("Mean =", round(mean_diff_scores, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of Difference Scores with Jitter", y = "Diff Scores") +
+  theme_minimal()
+
+# Create a histogram for the 'diff_scores' variable with mean label
+histogram_diff_scores <- ggplot(df, aes(x = diff_scores)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_diff_scores), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Difference Scores",
+       x = "Diff Scores",
+       y = "Frequency") +
+  theme_minimal()
+
+# Print both plots
+print(boxplot_diff_scores)
+print(histogram_diff_scores)
+
+# Create histograms for each video condition
+# Filter the dataframe for each video condition
+df_video_0 <- df %>% filter(video_condition == 0)
+df_video_1 <- df %>% filter(video_condition == 1)
+df_video_2 <- df %>% filter(video_condition == 2)
+
+# Calculate mean diff_scores for each condition
+mean_diff_scores_0 <- mean(df_video_0$diff_scores, na.rm = TRUE)
+mean_diff_scores_1 <- mean(df_video_1$diff_scores, na.rm = TRUE)
+mean_diff_scores_2 <- mean(df_video_2$diff_scores, na.rm = TRUE)
+
+# Create histograms
+histogram_diff_scores_0 <- ggplot(df_video_0, aes(x = diff_scores)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) +
+  geom_vline(aes(xintercept = mean_diff_scores_0), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Difference Scores for Negative Video",
+       x = "Diff Scores",
+       y = "Frequency") +
+  theme_minimal()
+
+histogram_diff_scores_1 <- ggplot(df_video_1, aes(x = diff_scores)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) +
+  geom_vline(aes(xintercept = mean_diff_scores_1), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Difference Scores for Neutral Video",
+       x = "Diff Scores",
+       y = "Frequency") +
+  theme_minimal()
+
+histogram_diff_scores_2 <- ggplot(df_video_2, aes(x = diff_scores)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) +
+  geom_vline(aes(xintercept = mean_diff_scores_2), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of Difference Scores for Positive Video",
+       x = "Diff Scores",
+       y = "Frequency") +
+  theme_minimal()
+
+# Print the histograms for each video condition
+print(histogram_diff_scores_0)
+print(histogram_diff_scores_1)
+print(histogram_diff_scores_2)
+```
+
+## Brief Self Control
+
+```{r, echo=FALSE, warning=FALSE}
+# Calculate Cronbach's alpha
+alpha_BSC <- alpha(df[, c("BSC1", "BSC2R", "BSC3R", "BSC4R", "BSC5R", "BSC6", "BSC7R", "BSC8", "BSC9R", "BSC10R", "BSC11", "BSC12R", "BSC13R")])
+print(alpha_BSC)
+
+# Calculate the mean of 'BSC'
+mean_BSC <- mean(df$BSC, na.rm = TRUE)
+
+# Create the boxplot for 'BSC' with mean label
+boxplot_BSC <- ggplot(df, aes(x = "", y = BSC)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_BSC), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_BSC, label = paste("Mean =", round(mean_BSC, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of BSC with Jitter", y = "BSC") +
+  theme_minimal()
+
+# Create a histogram for the 'BSC' variable with mean label
+histogram_BSC <- ggplot(df, aes(x = BSC)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_BSC), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of BSC",
+       x = "BSC",
+       y = "Frequency") +
+  theme_minimal()
+
+# Print both plots
+print(boxplot_BSC)
+print(histogram_BSC)
+```
+
+## Social Desirability
+
+```{r, echo=FALSE, warning=FALSE}
+# Calculate Cronbach's alpha
+alpha_SDS <- alpha(df[, c("SDS1R", "SDS2", "SDS3", "SDS4R", "SDS5", "SDS6R", "SDS7R", "SDS8", "SDS9", "SDS10", "SDS11R", "SDS12", "SDS13", "SDS14", "SDS15R", "SDS16", "SDS17R")])
+print(alpha_SDS)
+
+# Calculate the mean of 'SDS'
+mean_SDS <- mean(df$SDS, na.rm = TRUE)
+
+# Create the boxplot for 'SDS' with mean label
+boxplot_SDS <- ggplot(df, aes(x = "", y = SDS)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_point(aes(y = mean_SDS), color = "red", size = 3) + # Add mean point
+  annotate("text", x = 1.2, y = mean_SDS, label = paste("Mean =", round(mean_SDS, 2)), color = "red") + # Add mean label
+  labs(title = "Box Plot of SDS with Jitter", y = "SDS") +
+  theme_minimal()
+
+# Create a histogram for the 'SDS' variable with mean label
+histogram_SDS <- ggplot(df, aes(x = SDS)) +
+  geom_histogram(binwidth = 0.5, fill = "#008080", color = "black", alpha = 0.7) + # Adjust binwidth as needed
+  geom_vline(aes(xintercept = mean_SDS), linetype = "dashed", size = 1, color = "red") +
+  labs(title = "Histogram of SDS",
+       x = "SDS",
+       y = "Frequency") +
+  theme_minimal()
+
+# Print both plots
+print(boxplot_SDS)
+print(histogram_SDS)
+``` 
+
+# Correlations
+
+```{r, echo=FALSE, warning=FALSE,}
+# Calculate diff_scores as the difference between expected_pj and specific_pj
+df$diff_scores <- df$expected_pj - df$specific_pj
+
+# Ensure all variables are numeric and handle NA values
+vars_to_correlate <- df[, c("dist_just", "pol_effect", "legal_cyn", "expected_pj", "global_pj", 
+                            "specific_pj", "SDS", "norm_leg", "nonnorm_leg")]
+vars_to_correlate <- sapply(vars_to_correlate, as.numeric)
+complete_vars <- na.omit(vars_to_correlate)
+
+# Compute correlation matrix and p-values using Hmisc::rcorr() as it handles NA values well
+cor_test_results <- rcorr(as.matrix(complete_vars))
+cor_matrix <- cor_test_results$r
+p_values_matrix <- cor_test_results$P
+
+# Create a matrix to display correlation coefficients with significance levels marked
+signif_matrix <- apply(p_values_matrix, c(1, 2), function(x) ifelse(x < 0.05, "*", ""))
+cor_matrix_signif <- mapply(function(x, y) paste0(sprintf("%.2f", x), y), cor_matrix, signif_matrix, SIMPLIFY = FALSE)
+cor_matrix_signif <- matrix(cor_matrix_signif, nrow = nrow(cor_matrix), ncol = ncol(cor_matrix))
+
+# Define full names for variables
+full_names <- c("dist_just" = "Distributive Justice", "pol_effect" = "Police Effectiveness", 
+                "legal_cyn" = "Legal Cynicism", "expected_pj" = "Expected Procedural Justice", 
+                "global_pj" = "Global Procedural Justice", "specific_pj" = "Specific Procedural Justice", 
+                "SDS" = "Social Desirability Scale", "norm_leg" = "Normative Legitimacy", 
+                "nonnorm_leg" = "Non-norm Legitimacy")
+
+# Set the new row and column names for the matrix
+dimnames(cor_matrix_signif) <- list(full_names, full_names)
+
+# Replace diagonal 'NA' with "1.00" for self-correlations
+diag(cor_matrix_signif) <- "1.00"
+
+# Display the modified correlation matrix with significance indicators
+kable(cor_matrix_signif, caption = "Correlation Matrix with Significance Indicators", align = 'c')
+
+# Compute the correlation matrix
+cor_matrix1 <- cor(complete_vars)
+
+# Set the new row and column names for the matrix
+dimnames(cor_matrix1) <- list(full_names, full_names)
+
+# Create a flipped colored correlation matrix
+corrplot(cor_matrix1, method = "color", type = "lower", tl.col = "black", tl.srt = 45, 
+         col = colorRampPalette(c("red", "white", "blue"))(200), 
+         addCoef.col = "black", number.cex = 0.7, mar = c(0, 0, 4, 0))  # Adjust mar parameter for more space
+
+# Add title to the plot
+title("Colored Correlation Matrix")
+
+# Compute correlation matrix for diff_scores, norm_leg, and nonnorm_leg
+vars_to_correlate_diff <- df[, c("diff_scores", "norm_leg", "nonnorm_leg")]
+vars_to_correlate_diff <- sapply(vars_to_correlate_diff, as.numeric)
+complete_vars_diff <- na.omit(vars_to_correlate_diff)
+
+# Compute correlation matrix and p-values using Hmisc::rcorr() as it handles NA values well
+cor_test_results_diff <- rcorr(as.matrix(complete_vars_diff))
+cor_matrix_diff <- cor_test_results_diff$r
+p_values_matrix_diff <- cor_test_results_diff$P
+
+# Create a matrix to display correlation coefficients with significance levels marked
+signif_matrix_diff <- apply(p_values_matrix_diff, c(1, 2), function(x) ifelse(x < 0.05, "*", ""))
+cor_matrix_signif_diff <- mapply(function(x, y) paste0(sprintf("%.2f", x), y), cor_matrix_diff, signif_matrix_diff, SIMPLIFY = FALSE)
+cor_matrix_signif_diff <- matrix(cor_matrix_signif_diff, nrow = nrow(cor_matrix_diff), ncol = ncol(cor_matrix_diff))
+
+# Define full names for variables
+full_names_diff <- c("diff_scores" = "Difference Scores", 
+                     "norm_leg" = "Normative Legitimacy", 
+                     "nonnorm_leg" = "Non-norm Legitimacy")
+
+# Set the new row and column names for the matrix
+dimnames(cor_matrix_signif_diff) <- list(full_names_diff, full_names_diff)
+
+# Replace diagonal 'NA' with "1.00" for self-correlations
+diag(cor_matrix_signif_diff) <- "1.00"
+
+# Display the modified correlation matrix with significance indicators
+kable(cor_matrix_signif_diff, caption = "Correlation Matrix with Significance Indicators (Diff Scores, Normative Legitimacy, Non-norm Legitimacy)", align = 'c')
+
+# Compute the correlation matrix
+cor_matrix_diff1 <- cor(complete_vars_diff)
+
+# Set the new row and column names for the matrix
+dimnames(cor_matrix_diff1) <- list(full_names_diff, full_names_diff)
+
+# Create a colored correlation matrix
+corrplot(cor_matrix_diff1, method = "color", type = "lower", tl.col = "black", tl.srt = 45, 
+         col = colorRampPalette(c("red", "white", "blue"))(200), 
+         addCoef.col = "black", number.cex = 0.7, mar = c(0, 0, 4, 0))  # Adjust mar parameter for more space
+
+# Add title to the plot
+title("Colored Correlation Matrix for Difference Scores 
+      and Outcome Variables")
+```
+
+## Scatterplots
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Define full names for variables
+full_names <- c("dist_just" = "Distributive Justice", "pol_effect" = "Police Effectiveness", 
+                "legal_cyn" = "Legal Cynicism", "expected_pj" = "Expected Procedural Justice", 
+                "global_pj" = "Global Procedural Justice", "specific_pj" = "Specific Procedural Justice", 
+                "SDS" = "Social Desirability Scale", "norm_leg" = "Normative Legitimacy", 
+                "nonnorm_leg" = "Non-norm Legitimacy")
+
+# Extract pairs of variables with significant correlations and absolute correlation > 0.7
+significant_pairs <- which(p_values_matrix < 0.05 & abs(cor_matrix) > 0.7 & upper.tri(p_values_matrix), arr.ind = TRUE)
+significant_pairs <- data.frame(
+  Var1 = rownames(cor_matrix)[significant_pairs[, 1]],
+  Var2 = colnames(cor_matrix)[significant_pairs[, 2]],
+  Correlation = cor_matrix[significant_pairs],
+  stringsAsFactors = FALSE
+)
+
+# Function to wrap plot titles
+wrap_title <- function(title, width = 50) {
+  paste(strwrap(title, width = width), collapse = "\n")
+}
+
+# Create scatter plots for each significant pairing, displaying one scatter plot per frame
+plots <- list()
+for (i in 1:nrow(significant_pairs)) {
+  var1 <- significant_pairs$Var1[i]
+  var2 <- significant_pairs$Var2[i]
+  corr <- round(significant_pairs$Correlation[i], 2)
+  title <- wrap_title(paste(full_names[var1], "vs.", full_names[var2]), width = 50)
+  
+  p <- ggplot(df, aes_string(x = var1, y = var2)) +
+      geom_point(alpha = 0.5, size = 2) +
+      geom_smooth(method = "lm", col = "red", se = FALSE) +
+      labs(title = title,
+           x = full_names[var1],
+           y = full_names[var2]) +
+      annotate("text", x = Inf, y = -Inf, label = paste("r =", corr), 
+               hjust = 1.1, vjust = -1.5, size = 5, color = "red", 
+               fontface = "bold", 
+               bg = element_rect(fill = "black", color = NA)) +
+      theme_minimal(base_size = 12) +
+      theme(
+        plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(10, 10, 10, 10)
+      )
+  
+  plots[[i]] <- p
+}
+
+# Display one scatter plot per frame
+for (p in plots) {
+  print(p)
+}
+
+# Additional scatter plot between expected_pj and global_pj
+expected_pj_global_pj_corr <- round(cor(df$expected_pj, df$global_pj, use = "complete.obs"), 2)
+expected_pj_global_pj_title <- wrap_title("Expected Procedural Justice vs. Global Procedural Justice", width = 50)
+
+expected_pj_global_pj_plot <- ggplot(df, aes(x = expected_pj, y = global_pj)) +
+  geom_point(alpha = 0.5, size = 2) +
+  geom_smooth(method = "lm", col = "red", se = FALSE) +
+  labs(title = expected_pj_global_pj_title,
+       x = "Global Procedural Justice",
+       y = "Global Procedural Justice") +
+  annotate("text", x = -Inf, y = Inf, label = paste("r =", expected_pj_global_pj_corr), 
+           hjust = -0.1, vjust = 1.5, size = 5, color = "red", 
+           fontface = "bold", 
+           bg = element_rect(fill = "black", color = NA)) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+print(expected_pj_global_pj_plot)
+```
+
+
+# Qualitative Data\
+
+```{r, echo=FALSE, warning=FALSE}
+# Ensure video_condition is a factor without changing its labels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Convert open_quest and open_quest_count_words to numeric, handling NAs appropriately
+df$open_quest <- as.numeric(as.character(df$open_quest))
+df$open_quest_count_words <- as.numeric(as.character(df$open_quest_count_words))
+df$expected_pj <- as.numeric(as.character(df$expected_pj))
+df$norm_leg <- as.numeric(as.character(df$norm_leg))
+
+# Check for and handle any NA values in numeric columns
+df$open_quest[is.na(df$open_quest)] <- 0
+df$open_quest_count_words[is.na(df$open_quest_count_words)] <- 0
+df$expected_pj[is.na(df$expected_pj)] <- 0
+df$norm_leg[is.na(df$norm_leg)] <- 0
+
+# Select the variables to include in the correlation matrix
+vars_to_correlate1 <- df[, c("open_quest", "open_quest_count_words", "expected_pj", "norm_leg", "specific_pj")]
+
+# Compute the correlation matrix
+cor_matrix1 <- cor(vars_to_correlate1, use = "complete.obs")
+
+# Set the new row and column names for the matrix
+full_names1 <- c("Open Quest", "Open Quest Count Words", "Expected PJ", "Normative Leg", "Specific PJ")
+dimnames(cor_matrix1) <- list(full_names1, full_names1)
+
+# Create a colored correlation matrix
+corrplot(cor_matrix1, method = "color", type = "lower", tl.col = "black", tl.srt = 45, 
+         col = colorRampPalette(c("red", "white", "blue"))(200), 
+         addCoef.col = "black", number.cex = 0.7, mar = c(0, 0, 4, 0))
+
+# Add title to the plot
+title("Colored Correlation Matrix for Variables")
+
+# Mean center global_pj
+df <- df %>%
+  mutate(global_pj_cent = global_pj - mean(global_pj, na.rm = TRUE))
+
+# Filter out rows with missing values in the relevant columns for the model
+df_temp <- df %>%
+  filter(!is.na(norm_leg) & !is.na(video_condition) & !is.na(global_pj) &
+         !is.na(expected_pj) & !is.na(dist_just) & !is.na(pol_effect) &
+         !is.na(legal_cyn) & !is.na(BSC) & !is.na(SDS) & !is.na(region_split) & 
+         !is.na(community_split) & !is.na(race_split) & !is.na(age) & !is.na(arrested) &
+         !is.na(pol_contact) & !is.na(pol_fam) & !is.na(citizen) & !is.na(SES) &
+         !is.na(Male_split) & !is.na(open_quest) & !is.na(open_quest_count_words))
+
+# Convert SES to a numeric type if it is not already
+df_temp$SES <- as.numeric(df_temp$SES)
+
+# Step 1: Fit the first model
+model_step1 <- lm(norm_leg ~ video_condition + global_pj + expected_pj + 
+                              dist_just + pol_effect + legal_cyn + open_quest + 
+                              open_quest_count_words, data = df_temp)
+
+# Step 2: Fit the second model with additional predictors
+model_step2 <- lm(norm_leg ~ video_condition + global_pj + expected_pj + 
+                              dist_just + pol_effect + legal_cyn + open_quest + 
+                              open_quest_count_words + BSC + SDS + region_split + 
+                              community_split + race_split + age + arrested + 
+                              pol_contact + pol_fam + citizen + SES + Male_split, 
+                              data = df_temp)
+
+# Summarize the models
+summary(model_step1)
+summary(model_step2)
+
+# Compare the models using an ANOVA
+anova(model_step1, model_step2)
+
+# Visual diagnostics for the second model
+par(mfrow = c(2, 2))  # Layout for plots
+plot(model_step2)  # Generate plots
+
+# Create a new data frame for predictions
+video_conditions <- levels(df_temp$video_condition)
+
+# Generate prediction data for each video condition, including fixed values for expected_pj and control variables
+new_data <- expand.grid(video_condition = video_conditions,
+                        global_pj = seq(min(df_temp$global_pj, na.rm = TRUE), 
+                                                 max(df_temp$global_pj, na.rm = TRUE), length.out = 100),
+                        expected_pj = mean(df_temp$expected_pj, na.rm = TRUE),
+                        dist_just = mean(df_temp$dist_just, na.rm = TRUE),
+                        pol_effect = mean(df_temp$pol_effect, na.rm = TRUE),
+                        legal_cyn = mean(df_temp$legal_cyn, na.rm = TRUE),
+                        BSC = mean(df_temp$BSC, na.rm = TRUE),
+                        SDS = mean(df_temp$SDS, na.rm = TRUE),
+                        region_split = mean(df_temp$region_split, na.rm = TRUE),
+                        community_split = mean(df_temp$community_split, na.rm = TRUE),
+                        race_split = mean(df_temp$race_split, na.rm = TRUE),
+                        age = mean(df_temp$age, na.rm = TRUE),
+                        arrested = mean(df_temp$arrested, na.rm = TRUE),
+                        pol_contact = mean(df_temp$pol_contact, na.rm = TRUE),
+                        pol_fam = mean(df_temp$pol_fam, na.rm = TRUE),
+                        citizen = mean(df_temp$citizen, na.rm = TRUE),
+                        SES = mean(df_temp$SES, na.rm = TRUE),
+                        Male_split = mean(df_temp$Male_split, na.rm = TRUE),
+                        open_quest = mean(df_temp$open_quest, na.rm = TRUE),
+                        open_quest_count_words = mean(df_temp$open_quest_count_words, na.rm = TRUE),
+                        stringsAsFactors = FALSE)
+
+# Ensure the SES column is numeric in new_data
+new_data$SES <- as.numeric(new_data$SES)
+
+# Predict norm_leg using the second model
+new_data$predicted_norm_leg <- predict(model_step2, newdata = new_data)
+
+# Create a plot for the interaction across global_pj levels using the model
+ggplot(new_data, aes(x = global_pj, y = predicted_norm_leg, color = video_condition, group = video_condition)) +
+  geom_line(aes(linetype = video_condition), size = 1) +
+  scale_color_manual(name = "Video Condition", 
+                     values = c("0" = "red", "1" = "green", "2" = "blue"),
+                     labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  scale_linetype_manual(name = "Video Condition", 
+                        values = c("0" = "solid", "1" = "dashed", "2" = "dotted"),
+                        labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  labs(title = "Predicted Norm Leg across Global PJ by Video Condition",
+       x = "Global PJ",
+       y = "Predicted Norm Leg") +
+  theme_minimal()
+```
+
+# Regressions
+
+## Legitimacy is predicted by Video Condition, Global PJ, Expected PJ, and Controls
+
+```{r, echo=FALSE, warning=FALSE}
+# Ensure video_condition is a factor without changing its labels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Mean center global_pj
+df <- df %>%
+  mutate(global_pj_cent = global_pj - mean(global_pj, na.rm = TRUE))
+
+# Filter out rows with missing values in the relevant columns for the model
+df_temp <- df %>%
+  filter(!is.na(norm_leg) & !is.na(video_condition) & !is.na(global_pj) &
+         !is.na(expected_pj) & !is.na(dist_just) & !is.na(pol_effect) &
+         !is.na(legal_cyn) & !is.na(BSC) & !is.na(SDS) & !is.na(region_split) & 
+         !is.na(community_split) & !is.na(race_split) & !is.na(age) & !is.na(arrested) &
+         !is.na(pol_contact) & !is.na(pol_fam) & !is.na(citizen) & !is.na(SES) &
+         !is.na(Male_split))
+
+# Convert SES to a numeric type if it is not already
+df_temp$SES <- as.numeric(df_temp$SES)
+
+# Fit the model without pol_scale and without interaction terms
+model1 <- lm(norm_leg ~ video_condition + global_pj + expected_pj +
+                              dist_just + pol_effect + legal_cyn + BSC + SDS + region_split + 
+                              community_split + race_split + age + arrested + pol_contact + 
+                              pol_fam + citizen + SES + Male_split, data = df_temp)
+
+# Summarize the model
+summary(model1)
+
+# Visual diagnostics for the model
+par(mfrow = c(2, 2))  # Layout for plots
+plot(model1)  # Generate plots
+
+# Create a new data frame for predictions
+video_conditions <- levels(df_temp$video_condition)
+
+# Generate prediction data for each video condition, including fixed values for expected_pj and control variables
+new_data <- expand.grid(video_condition = video_conditions,
+                        global_pj = seq(min(df_temp$global_pj, na.rm = TRUE), 
+                                                 max(df_temp$global_pj, na.rm = TRUE), length.out = 100),
+                        expected_pj = mean(df_temp$expected_pj, na.rm = TRUE),
+                        dist_just = mean(df_temp$dist_just, na.rm = TRUE),
+                        pol_effect = mean(df_temp$pol_effect, na.rm = TRUE),
+                        legal_cyn = mean(df_temp$legal_cyn, na.rm = TRUE),
+                        BSC = mean(df_temp$BSC, na.rm = TRUE),
+                        SDS = mean(df_temp$SDS, na.rm = TRUE),
+                        region_split = mean(df_temp$region_split, na.rm = TRUE),
+                        community_split = mean(df_temp$community_split, na.rm = TRUE),
+                        race_split = mean(df_temp$race_split, na.rm = TRUE),
+                        age = mean(df_temp$age, na.rm = TRUE),
+                        arrested = mean(df_temp$arrested, na.rm = TRUE),
+                        pol_contact = mean(df_temp$pol_contact, na.rm = TRUE),
+                        pol_fam = mean(df_temp$pol_fam, na.rm = TRUE),
+                        citizen = mean(df_temp$citizen, na.rm = TRUE),
+                        SES = mean(df_temp$SES, na.rm = TRUE),
+                        Male_split = mean(df_temp$Male_split, na.rm = TRUE),
+                        stringsAsFactors = FALSE)
+
+# Ensure the SES column is numeric in new_data
+new_data$SES <- as.numeric(new_data$SES)
+
+# Predict norm_leg using the model
+new_data$predicted_norm_leg <- predict(model1, newdata = new_data)
+
+# Create a plot for the interaction across global_pj levels using the model
+ggplot(new_data, aes(x = global_pj, y = predicted_norm_leg, color = video_condition, group = video_condition)) +
+  geom_line(aes(linetype = video_condition), size = 1) +
+  scale_color_manual(name = "Video Condition", 
+                     values = c("0" = "red", "1" = "green", "2" = "blue"),
+                     labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  scale_linetype_manual(name = "Video Condition", 
+                        values = c("0" = "solid", "1" = "dashed", "2" = "dotted"),
+                        labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  labs(title = "Predicted Norm Leg across Global PJ by Video Condition",
+       x = "Global PJ",
+       y = "Predicted Norm Leg") +
+  theme_minimal()
+
+```
+
+## Legitimacy is predicted by Video Condition, Global PJ, Expected PJ, VC*GPJ, and Controls
+
+```{r, echo=FALSE, warning=FALSE}
+# Ensure video_condition is a factor without changing its labels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Mean center global_pj
+df <- df %>%
+  mutate(global_pj_cent = global_pj - mean(global_pj, na.rm = TRUE))
+
+# Filter out rows with missing values in the relevant columns for the model
+df_temp <- df %>%
+  filter(!is.na(norm_leg) & !is.na(video_condition) & !is.na(global_pj_cent) & 
+         !is.na(expected_pj) & !is.na(dist_just) & !is.na(pol_effect) & 
+         !is.na(legal_cyn) & !is.na(BSC) & !is.na(SDS) & 
+         !is.na(region_split) & !is.na(community_split) & !is.na(race_split) & 
+         !is.na(age) & !is.na(arrested) & !is.na(pol_contact) & 
+         !is.na(pol_fam) & !is.na(citizen) & !is.na(SES) & !is.na(Male_split))
+
+# Convert SES and other necessary variables to numeric type if they are not already
+df_temp <- df_temp %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Fit the model without pol_scale
+model2 <- lm(norm_leg ~ video_condition + global_pj_cent + expected_pj + 
+             video_condition * global_pj_cent + 
+             dist_just + pol_effect + legal_cyn + BSC + SDS + 
+             region_split + community_split + race_split + age + 
+             arrested + pol_contact + pol_fam + citizen + SES + Male_split, 
+             data = df_temp)
+
+# Summarize the model
+summary(model2)
+
+# Visual diagnostics for the model without pol_scale
+par(mfrow = c(2, 2))  # Layout for plots
+plot(model2)  # Generate plots
+
+# Create a new data frame for predictions
+video_conditions <- levels(df_temp$video_condition)
+
+# Generate prediction data for each video condition, including fixed values for expected_pj and control variables
+df_new <- expand.grid(video_condition = video_conditions,
+                      global_pj_cent = seq(min(df_temp$global_pj_cent, na.rm = TRUE), 
+                                           max(df_temp$global_pj_cent, na.rm = TRUE), length.out = 100),
+                      expected_pj = mean(df_temp$expected_pj, na.rm = TRUE),
+                      dist_just = mean(df_temp$dist_just, na.rm = TRUE),
+                      pol_effect = mean(df_temp$pol_effect, na.rm = TRUE),
+                      legal_cyn = mean(df_temp$legal_cyn, na.rm = TRUE),
+                      BSC = mean(df_temp$BSC, na.rm = TRUE),
+                      SDS = mean(df_temp$SDS, na.rm = TRUE),
+                      region_split = mean(df_temp$region_split, na.rm = TRUE),
+                      community_split = mean(df_temp$community_split, na.rm = TRUE),
+                      race_split = mean(df_temp$race_split, na.rm = TRUE),
+                      age = mean(df_temp$age, na.rm = TRUE),
+                      arrested = mean(df_temp$arrested, na.rm = TRUE),
+                      pol_contact = mean(df_temp$pol_contact, na.rm = TRUE),
+                      pol_fam = mean(df_temp$pol_fam, na.rm = TRUE),
+                      citizen = mean(df_temp$citizen, na.rm = TRUE),
+                      SES = mean(df_temp$SES, na.rm = TRUE),
+                      Male_split = mean(df_temp$Male_split, na.rm = TRUE),
+                      stringsAsFactors = FALSE)
+
+# Ensure all necessary variables are numeric in df_new
+df_new <- df_new %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Predict norm_leg using the model
+df_new$predicted_norm_leg <- predict(model2, newdata = df_new)
+
+# Create a plot for the interaction across global_pj levels using the model
+ggplot(df_new, aes(x = global_pj_cent, y = predicted_norm_leg, color = video_condition, group = video_condition)) +
+  geom_line(aes(linetype = video_condition), size = 1) +
+  scale_color_manual(name = "Video Condition", 
+                     values = c("0" = "red", "1" = "green", "2" = "blue"),
+                     labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  scale_linetype_manual(name = "Video Condition", 
+                        values = c("0" = "solid", "1" = "dashed", "2" = "dotted"),
+                        labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  labs(title = "Predicted Norm Leg across Global PJ by Video Condition",
+       x = "Global PJ (Mean Centered)",
+       y = "Predicted Norm Leg") +
+  theme_minimal()
+
+```
+
+## Specific PJ is predicted by Video Condition, Global PJ, Expected PJ, VC*GPJ, and Controls
+
+```{r, echo=FALSE, warning=FALSE}
+# Ensure video_condition is a factor without changing its labels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Mean center global_pj
+df <- df %>%
+  mutate(global_pj_cent = global_pj - mean(global_pj, na.rm = TRUE))
+
+# Filter out rows with missing values in the relevant columns for the model without pol_scale
+df_new <- df %>%
+  filter(!is.na(specific_pj) & !is.na(video_condition) & !is.na(global_pj_cent) & 
+         !is.na(expected_pj) & !is.na(dist_just) & !is.na(pol_effect) & 
+         !is.na(legal_cyn) & !is.na(BSC) & !is.na(SDS) &
+         !is.na(region_split) & !is.na(community_split) & !is.na(race_split) &
+         !is.na(age) & !is.na(arrested) & !is.na(pol_contact) & !is.na(pol_fam) &
+         !is.na(citizen) & !is.na(SES) & !is.na(Male_split))
+
+# Convert SES and other necessary variables to numeric type if they are not already
+df_new <- df_new %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Fit the model without pol_scale
+model3 <- lm(specific_pj ~ video_condition + global_pj_cent + expected_pj + 
+             video_condition * global_pj_cent + 
+             dist_just + pol_effect + legal_cyn + BSC + SDS + 
+             region_split + community_split + race_split + age + 
+             arrested + pol_contact + pol_fam + citizen + SES + Male_split, 
+             data = df_new)
+
+# Summarize the model
+summary(model3)
+
+# Visual diagnostics for the model without pol_scale
+par(mfrow = c(2, 2))  # Layout for plots
+plot(model3)  # Generate plots
+
+# Create a new data frame for predictions
+video_conditions <- levels(df_new$video_condition)
+
+# Generate prediction data for each video condition, including a fixed value for expected_pj and control variables
+prediction_data <- expand.grid(video_condition = video_conditions,
+                               global_pj_cent = seq(min(df_new$global_pj_cent, na.rm = TRUE), 
+                                                    max(df_new$global_pj_cent, na.rm = TRUE), length.out = 100),
+                               expected_pj = mean(df_new$expected_pj, na.rm = TRUE),
+                               dist_just = mean(df_new$dist_just, na.rm = TRUE),
+                               pol_effect = mean(df_new$pol_effect, na.rm = TRUE),
+                               legal_cyn = mean(df_new$legal_cyn, na.rm = TRUE),
+                               BSC = mean(df_new$BSC, na.rm = TRUE),
+                               SDS = mean(df_new$SDS, na.rm = TRUE),
+                               region_split = mean(df_new$region_split, na.rm = TRUE),
+                               community_split = mean(df_new$community_split, na.rm = TRUE),
+                               race_split = mean(df_new$race_split, na.rm = TRUE),
+                               age = mean(df_new$age, na.rm = TRUE),
+                               arrested = mean(df_new$arrested, na.rm = TRUE),
+                               pol_contact = mean(df_new$pol_contact, na.rm = TRUE),
+                               pol_fam = mean(df_new$pol_fam, na.rm = TRUE),
+                               citizen = mean(df_new$citizen, na.rm = TRUE),
+                               SES = mean(df_new$SES, na.rm = TRUE),
+                               Male_split = mean(df_new$Male_split, na.rm = TRUE),
+                               stringsAsFactors = FALSE)
+
+# Ensure all necessary variables are numeric in prediction_data
+prediction_data <- prediction_data %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Predict specific_pj using the model
+prediction_data$predicted_specific_pj <- predict(model3, newdata = prediction_data)
+
+# Create a plot for the interaction across global_pj levels using the model
+ggplot(prediction_data, aes(x = global_pj_cent, y = predicted_specific_pj, color = video_condition, group = video_condition)) +
+  geom_line(aes(linetype = video_condition), size = 1) +
+  scale_color_manual(name = "Video Condition", 
+                     values = c("0" = "red", "1" = "green", "2" = "blue"),
+                     labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  scale_linetype_manual(name = "Video Condition", 
+                        values = c("0" = "solid", "1" = "dashed", "2" = "dotted"),
+                        labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  labs(title = "Predicted Specific PJ across Global PJ by Video Condition",
+       x = "Global PJ (Mean Centered)",
+       y = "Predicted Specific PJ") +
+  theme_minimal()
+
+```
+
+## Non-normative Legitibacy is predicted by Video Condition, Global PJ, Expected PJ, VC*GPJ, and Controls
+
+```{r, echo=FALSE, warning=FALSE}
+# Ensure video_condition is a factor without changing its labels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Mean center global_pj
+df <- df %>%
+  mutate(global_pj_cent = global_pj - mean(global_pj, na.rm = TRUE))
+
+# Filter out rows with missing values in the relevant columns for the model without pol_scale
+df_new <- df %>%
+  filter(!is.na(nonnorm_leg) & !is.na(video_condition) & !is.na(global_pj_cent) & 
+         !is.na(expected_pj) & !is.na(dist_just) & !is.na(pol_effect) & 
+         !is.na(legal_cyn) & !is.na(SDS) & !is.na(BSC) & !is.na(age) &
+         !is.na(region_split) & !is.na(community_split) & !is.na(race_split) &
+         !is.na(arrested) & !is.na(pol_contact) & !is.na(pol_fam) &
+         !is.na(citizen) & !is.na(SES) & !is.na(Male_split))
+
+# Convert SES and other necessary variables to numeric type if they are not already
+df_new <- df_new %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Fit the model without pol_scale
+model4 <- lm(nonnorm_leg ~ video_condition + global_pj_cent + expected_pj + 
+             video_condition * global_pj_cent + 
+             dist_just + pol_effect + legal_cyn + SDS + BSC + age + 
+             region_split + community_split + race_split + arrested + pol_contact + 
+             pol_fam + citizen + SES + Male_split, 
+             data = df_new)
+
+# Summarize the model
+summary(model4)
+
+# Visual diagnostics for the model without pol_scale
+par(mfrow = c(2, 2))  # Layout for plots
+plot(model4)  # Generate plots
+
+# Create a new data frame for predictions
+video_conditions <- levels(df_new$video_condition)
+
+# Generate prediction data for each video condition, including a fixed value for expected_pj and control variables
+prediction_data <- expand.grid(video_condition = video_conditions,
+                               global_pj_cent = seq(min(df_new$global_pj_cent, na.rm = TRUE), 
+                                                    max(df_new$global_pj_cent, na.rm = TRUE), length.out = 100),
+                               expected_pj = mean(df_new$expected_pj, na.rm = TRUE),
+                               dist_just = mean(df_new$dist_just, na.rm = TRUE),
+                               pol_effect = mean(df_new$pol_effect, na.rm = TRUE),
+                               legal_cyn = mean(df_new$legal_cyn, na.rm = TRUE),
+                               SDS = mean(df_new$SDS, na.rm = TRUE),
+                               BSC = mean(df_new$BSC, na.rm = TRUE),
+                               age = mean(df_new$age, na.rm = TRUE),
+                               region_split = mean(df_new$region_split, na.rm = TRUE),
+                               community_split = mean(df_new$community_split, na.rm = TRUE),
+                               race_split = mean(df_new$race_split, na.rm = TRUE),
+                               arrested = mean(df_new$arrested, na.rm = TRUE),
+                               pol_contact = mean(df_new$pol_contact, na.rm = TRUE),
+                               pol_fam = mean(df_new$pol_fam, na.rm = TRUE),
+                               citizen = mean(df_new$citizen, na.rm = TRUE),
+                               SES = mean(df_new$SES, na.rm = TRUE),
+                               Male_split = mean(df_new$Male_split, na.rm = TRUE),
+                               stringsAsFactors = FALSE)
+
+# Ensure all necessary variables are numeric in prediction_data
+prediction_data <- prediction_data %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Predict nonnorm_leg using the model
+prediction_data$predicted_nonnorm_leg <- predict(model4, newdata = prediction_data)
+
+# Create a plot for the interaction across global_pj levels using the model without pol_scale
+ggplot(prediction_data, aes(x = global_pj_cent, y = predicted_nonnorm_leg, color = video_condition, group = video_condition)) +
+  geom_line(aes(linetype = video_condition), size = 1) +
+  scale_color_manual(name = "Video Condition", 
+                     values = c("0" = "red", "1" = "green", "2" = "blue"),
+                     labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  scale_linetype_manual(name = "Video Condition", 
+                        values = c("0" = "solid", "1" = "dashed", "2" = "dotted"),
+                        labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  labs(title = "Predicted Non Norm Leg across Global PJ by Video Condition",
+       x = "Global PJ (Mean Centered)",
+       y = "Non Normative Legitimacy") +
+  theme_minimal()
+```
+
+## Legitimacy is predicted by Video Condition, Global PJ, Expected PJ, VC*ExPJ, and Controls
+
+```{r, echo=FALSE, warning=FALSE}
+# Ensure video_condition is a factor without changing its labels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Mean center expected_pj
+df <- df %>%
+  mutate(expected_pj_cent = expected_pj - mean(expected_pj, na.rm = TRUE))
+
+# Filter out rows with missing values in the relevant columns for the model without pol_scale
+df_new <- df %>%
+  filter(!is.na(norm_leg) & !is.na(video_condition) & !is.na(global_pj) &
+         !is.na(expected_pj_cent) & !is.na(dist_just) & !is.na(pol_effect) & 
+         !is.na(legal_cyn) & !is.na(SDS) & !is.na(BSC) & !is.na(age) &
+         !is.na(region_split) & !is.na(community_split) & !is.na(race_split) &
+         !is.na(arrested) & !is.na(pol_contact) & !is.na(pol_fam) &
+         !is.na(citizen) & !is.na(SES) & !is.na(Male_split))
+
+# Convert SES and other necessary variables to numeric type if they are not already
+df_new <- df_new %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Fit the model without pol_scale
+model5 <- lm(norm_leg ~ video_condition + global_pj + expected_pj_cent + 
+             video_condition * expected_pj_cent + 
+             dist_just + pol_effect + legal_cyn + SDS + BSC + age + 
+             region_split + community_split + race_split + arrested + pol_contact + 
+             pol_fam + citizen + SES + Male_split, 
+             data = df_new)
+
+# Summarize the model
+summary(model5)
+
+# Visual diagnostics for the model without pol_scale
+par(mfrow = c(2, 2))  # Layout for plots
+plot(model5)  # Generate plots
+
+# Create a new data frame for predictions
+video_conditions <- levels(df_new$video_condition)
+
+# Generate prediction data for each video condition, including a fixed value for global_pj and control variables
+prediction_data <- expand.grid(video_condition = video_conditions,
+                               expected_pj_cent = seq(min(df_new$expected_pj_cent, na.rm = TRUE), 
+                                                          max(df_new$expected_pj_cent, na.rm = TRUE), length.out = 100),
+                               global_pj = mean(df_new$global_pj, na.rm = TRUE),
+                               dist_just = mean(df_new$dist_just, na.rm = TRUE),
+                               pol_effect = mean(df_new$pol_effect, na.rm = TRUE),
+                               legal_cyn = mean(df_new$legal_cyn, na.rm = TRUE),
+                               SDS = mean(df_new$SDS, na.rm = TRUE),
+                               BSC = mean(df_new$BSC, na.rm = TRUE),
+                               age = mean(df_new$age, na.rm = TRUE),
+                               region_split = mean(df_new$region_split, na.rm = TRUE),
+                               community_split = mean(df_new$community_split, na.rm = TRUE),
+                               race_split = mean(df_new$race_split, na.rm = TRUE),
+                               arrested = mean(df_new$arrested, na.rm = TRUE),
+                               pol_contact = mean(df_new$pol_contact, na.rm = TRUE),
+                               pol_fam = mean(df_new$pol_fam, na.rm = TRUE),
+                               citizen = mean(df_new$citizen, na.rm = TRUE),
+                               SES = mean(df_new$SES, na.rm = TRUE),
+                               Male_split = mean(df_new$Male_split, na.rm = TRUE),
+                               stringsAsFactors = FALSE)
+
+# Ensure all necessary variables are numeric in prediction_data
+prediction_data <- prediction_data %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Predict norm_leg using the model
+prediction_data$predicted_norm_leg <- predict(model5, newdata = prediction_data)
+
+# Create a plot for the interaction across expected_pj levels using the model
+ggplot(prediction_data, aes(x = expected_pj_cent, y = predicted_norm_leg, color = video_condition, group = video_condition)) +
+  geom_line(aes(linetype = video_condition), size = 1) +
+  scale_color_manual(name = "Video Condition", 
+                     values = c("0" = "red", "1" = "green", "2" = "blue"),
+                     labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  scale_linetype_manual(name = "Video Condition", 
+                        values = c("0" = "solid", "1" = "dashed", "2" = "dotted"),
+                        labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  labs(title = "Predicted Norm Leg across Expected PJ Levels by Video Condition",
+       x = "Expected PJ (Mean Centered)",
+       y = "Predicted Norm Leg") +
+  theme_minimal()
+```
+
+## Specific PJ is predicted by Video Condition, Global PJ, Expected PJ, VC*ExPJ, and Controls
+
+```{r, echo=FALSE, warning=FALSE}
+# Ensure video_condition is a factor without changing its labels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Mean center expected_pj
+df <- df %>%
+  mutate(expected_pj_cent = expected_pj - mean(expected_pj, na.rm = TRUE))
+
+# Filter out rows with missing values in the relevant columns for the model without pol_scale
+df_new <- df %>%
+  filter(!is.na(specific_pj) & !is.na(video_condition) & !is.na(global_pj) & 
+         !is.na(expected_pj_cent) & !is.na(dist_just) & !is.na(pol_effect) & 
+         !is.na(legal_cyn) & !is.na(SDS) & !is.na(BSC) & !is.na(age) &
+         !is.na(region_split) & !is.na(community_split) & !is.na(race_split) &
+         !is.na(arrested) & !is.na(pol_contact) & !is.na(pol_fam) &
+         !is.na(citizen) & !is.na(SES) & !is.na(Male_split))
+
+# Convert SES and other necessary variables to numeric type if they are not already
+df_new <- df_new %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Fit the model without pol_scale
+model6 <- lm(specific_pj ~ video_condition + global_pj + expected_pj_cent + 
+             video_condition * expected_pj_cent + 
+             dist_just + pol_effect + legal_cyn + SDS + BSC + age + 
+             region_split + community_split + race_split + arrested + pol_contact + 
+             pol_fam + citizen + SES + Male_split, 
+             data = df_new)
+
+# Summarize the model
+summary(model6)
+
+# Visual diagnostics for the model without pol_scale
+par(mfrow = c(2, 2))  # Layout for plots
+plot(model6)  # Generate plots
+
+# Create a new data frame for predictions
+video_conditions <- levels(df_new$video_condition)
+
+# Generate prediction data for each video condition, including a fixed value for global_pj and control variables
+prediction_data <- expand.grid(video_condition = video_conditions,
+                               expected_pj_cent = seq(min(df_new$expected_pj_cent, na.rm = TRUE), 
+                                                      max(df_new$expected_pj_cent, na.rm = TRUE), length.out = 100),
+                               global_pj = mean(df_new$global_pj, na.rm = TRUE),
+                               dist_just = mean(df_new$dist_just, na.rm = TRUE),
+                               pol_effect = mean(df_new$pol_effect, na.rm = TRUE),
+                               legal_cyn = mean(df_new$legal_cyn, na.rm = TRUE),
+                               SDS = mean(df_new$SDS, na.rm = TRUE),
+                               BSC = mean(df_new$BSC, na.rm = TRUE),
+                               age = mean(df_new$age, na.rm = TRUE),
+                               region_split = mean(df_new$region_split, na.rm = TRUE),
+                               community_split = mean(df_new$community_split, na.rm = TRUE),
+                               race_split = mean(df_new$race_split, na.rm = TRUE),
+                               arrested = mean(df_new$arrested, na.rm = TRUE),
+                               pol_contact = mean(df_new$pol_contact, na.rm = TRUE),
+                               pol_fam = mean(df_new$pol_fam, na.rm = TRUE),
+                               citizen = mean(df_new$citizen, na.rm = TRUE),
+                               SES = mean(df_new$SES, na.rm = TRUE),
+                               Male_split = mean(df_new$Male_split, na.rm = TRUE),
+                               stringsAsFactors = FALSE)
+
+# Ensure all necessary variables are numeric in prediction_data
+prediction_data <- prediction_data %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Predict specific_pj using the model
+prediction_data$predicted_specific_pj <- predict(model6, newdata = prediction_data)
+
+# Create a plot for the interaction across expected_pj levels using the model
+ggplot(prediction_data, aes(x = expected_pj_cent, y = predicted_specific_pj, color = video_condition, group = video_condition)) +
+  geom_line(aes(linetype = video_condition), size = 1) +
+  scale_color_manual(name = "Video Condition", 
+                     values = c("0" = "red", "1" = "green", "2" = "blue"),
+                     labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  scale_linetype_manual(name = "Video Condition", 
+                        values = c("0" = "solid", "1" = "dashed", "2" = "dotted"),
+                        labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  labs(title = "Predicted Specific PJ across Expected PJ Levels by Video Condition",
+       x = "Expected PJ (Mean Centered)",
+       y = "Predicted Specific PJ") +
+  theme_minimal()
+
+```
+
+## Non-normative Legitimacy is predicted by Video Condition, Global PJ, Expected PJ, VC*ExPJ, and Controls
+
+```{r, echo=FALSE, warning=FALSE}
+# Ensure video_condition is a factor without changing its labels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Mean center expected_pj
+df <- df %>%
+  mutate(expected_pj_cent = expected_pj - mean(expected_pj, na.rm = TRUE))
+
+# Filter out rows with missing values in the relevant columns for the model without pol_scale
+df_new <- df %>%
+  filter(!is.na(nonnorm_leg) & !is.na(video_condition) & !is.na(global_pj) & 
+         !is.na(expected_pj_cent) & !is.na(dist_just) & !is.na(pol_effect) & 
+         !is.na(legal_cyn) & !is.na(SDS) & !is.na(BSC) & !is.na(age) &
+         !is.na(region_split) & !is.na(community_split) & !is.na(race_split) &
+         !is.na(arrested) & !is.na(pol_contact) & !is.na(pol_fam) &
+         !is.na(citizen) & !is.na(SES) & !is.na(Male_split))
+
+# Convert SES and other necessary variables to numeric type if they are not already
+df_new <- df_new %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Fit the model without pol_scale
+model7 <- lm(nonnorm_leg ~ video_condition + global_pj + expected_pj_cent + 
+             video_condition * expected_pj_cent + 
+             dist_just + pol_effect + legal_cyn + SDS + BSC + age + 
+             region_split + community_split + race_split + arrested + pol_contact + 
+             pol_fam + citizen + SES + Male_split, 
+             data = df_new)
+
+# Summarize the model
+summary(model7)
+
+# Visual diagnostics for the model without pol_scale
+par(mfrow = c(2, 2))  # Layout for plots
+plot(model7)  # Generate plots
+
+# Create a new data frame for predictions
+video_conditions <- levels(df_new$video_condition)
+
+# Generate prediction data for each video condition, including a fixed value for global_pj and control variables
+prediction_data <- expand.grid(video_condition = video_conditions,
+                               expected_pj_cent = seq(min(df_new$expected_pj_cent, na.rm = TRUE), 
+                                                      max(df_new$expected_pj_cent, na.rm = TRUE), length.out = 100),
+                               global_pj = mean(df_new$global_pj, na.rm = TRUE),
+                               dist_just = mean(df_new$dist_just, na.rm = TRUE),
+                               pol_effect = mean(df_new$pol_effect, na.rm = TRUE),
+                               legal_cyn = mean(df_new$legal_cyn, na.rm = TRUE),
+                               SDS = mean(df_new$SDS, na.rm = TRUE),
+                               BSC = mean(df_new$BSC, na.rm = TRUE),
+                               age = mean(df_new$age, na.rm = TRUE),
+                               region_split = mean(df_new$region_split, na.rm = TRUE),
+                               community_split = mean(df_new$community_split, na.rm = TRUE),
+                               race_split = mean(df_new$race_split, na.rm = TRUE),
+                               arrested = mean(df_new$arrested, na.rm = TRUE),
+                               pol_contact = mean(df_new$pol_contact, na.rm = TRUE),
+                               pol_fam = mean(df_new$pol_fam, na.rm = TRUE),
+                               citizen = mean(df_new$citizen, na.rm = TRUE),
+                               SES = mean(df_new$SES, na.rm = TRUE),
+                               Male_split = mean(df_new$Male_split, na.rm = TRUE),
+                               stringsAsFactors = FALSE)
+
+# Ensure all necessary variables are numeric in prediction_data
+prediction_data <- prediction_data %>%
+  mutate(SES = as.numeric(SES),
+         region_split = as.numeric(region_split),
+         community_split = as.numeric(community_split),
+         race_split = as.numeric(race_split),
+         age = as.numeric(age),
+         arrested = as.numeric(arrested),
+         pol_contact = as.numeric(pol_contact),
+         pol_fam = as.numeric(pol_fam),
+         citizen = as.numeric(citizen),
+         Male_split = as.numeric(Male_split))
+
+# Predict nonnorm_leg using the model
+prediction_data$predicted_nonnorm_leg <- predict(model7, newdata = prediction_data)
+
+# Create a plot for the interaction across expected_pj levels using the model
+ggplot(prediction_data, aes(x = expected_pj_cent, y = predicted_nonnorm_leg, color = video_condition, group = video_condition)) +
+  geom_line(aes(linetype = video_condition), size = 1) +
+  scale_color_manual(name = "Video Condition", 
+                     values = c("0" = "red", "1" = "green", "2" = "blue"),
+                     labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  scale_linetype_manual(name = "Video Condition", 
+                        values = c("0" = "solid", "1" = "dashed", "2" = "dotted"),
+                        labels = c("0" = "Negative Condition", "1" = "Neutral Condition", "2" = "Positive Condition")) +
+  labs(title = "Predicted Non-Norm Leg across Expected PJ by Video Condition",
+       x = "Expected PJ (Mean Centered)",
+       y = "Predicted Non-Norm Leg") +
+  theme_minimal()
+
+```
+
+
+# Path Analyses
+
+## Path Analysis 1 - Normative Legitimacy with Contrls: Male, Region, SDS
+
+```{r, echo=FALSE, warning=FALSE}
+# Load necessary packages
+library(tidyverse)
+library(lavaan)
+library(tidySEM)
+library(knitr)
+library(kableExtra)
+
+# Convert 'video_condition' to a factor with explicitly defined levels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Dummy code 'video_condition'
+df <- df %>%
+  mutate(
+    video_condition_1 = ifelse(video_condition == 1, 1, 0),
+    video_condition_2 = ifelse(video_condition == 2, 1, 0)
+  )
+
+# Create duplicate columns with shorter names
+df <- df %>%
+  mutate(
+    VC1 = video_condition_1,
+    VC2 = video_condition_2,
+    PE = pol_effect,
+    DJ = dist_just,
+    LC = legal_cyn,
+    GPJ = global_pj,
+    SPJ = specific_pj,
+    NL = norm_leg,
+    ExPJ = expected_pj,  
+    Male_split = Male_split,         
+    region_split = region_split,
+    SDS = SDS
+  )
+
+# Remove rows with missing values in the relevant columns
+df <- df[!is.na(df$NL) & !is.na(df$SPJ) & !is.na(df$VC1) & !is.na(df$VC2) &
+         !is.na(df$LC) & !is.na(df$PE) & !is.na(df$DJ) & !is.na(df$GPJ) & 
+         !is.na(df$ExPJ) & !is.na(df$Male_split) & !is.na(df$region_split) & !is.na(df$SDS), ]
+
+# Define the model specification
+model_spec <- '
+  # Direct effects on norm_leg (NL)
+  NL ~ c1*VC1 + c2*VC2 + PE + DJ + LC + ExPJ + GPJ + b*SPJ + Male_split + region_split + SDS
+
+  # Direct effects on specific_pj (SPJ)
+  SPJ ~ a1*VC1 + a2*VC2 + a3*LC + a4*ExPJ + a5*GPJ
+
+  # Indirect effects through SPJ on norm_leg (NL)
+  indirect_VC1_NL := a1 * b
+  indirect_VC2_NL := a2 * b
+  indirect_LC_NL := a3 * b
+  indirect_ExPJ_NL := a4 * b
+  indirect_GPJ_NL := a5 * b
+'
+
+# Fit the revised path model
+fit <- sem(model_spec, data = df)
+
+# Summarize the results with standardized estimates and fit measures
+summary_fit <- summary(fit, standardized = TRUE, fit.measures = TRUE)
+print(summary_fit)
+
+# Obtain detailed fit indices
+fit_measures <- fitMeasures(fit)
+print(fit_measures)
+
+# Extract path coefficients and significance levels
+parameter_estimates <- parameterEstimates(fit, standardized = TRUE)
+
+# Extract significant pathways (p < 0.05)
+significant_paths <- parameter_estimates %>%
+  dplyr::filter(op == "~" & pvalue < 0.05)
+
+# Create node list with GPJ preceding ExPJ
+nodes <- data.frame(
+  name = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "ExPJ", "SPJ", "NL", "Male_split", "region_split", "SDS"),
+  label = c("Neutral Video", "Positive Video", "Police Effective",
+            "Distributive Justice", "Legal Cynicism", "Global PJ",
+            "Expected PJ", "Specific PJ", "Normative Legitimacy",
+            "Male", "Region", "SDS")
+)
+
+# Create edge list with colors based on significance
+edges <- significant_paths %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = ifelse(pvalue < 0.05, "red", "black"),
+    size = ifelse(pvalue < 0.05, 1.5, 1)
+  )
+
+# Combine non-significant paths for comparison
+non_significant_paths <- parameter_estimates %>%
+  dplyr::filter(op == "~" & pvalue >= 0.05) %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = "black",
+    size = 1
+  )
+
+# Combine significant and non-significant edges
+edges <- dplyr::bind_rows(edges, non_significant_paths)
+
+# Define custom layout for the graph with GPJ above ExPJ
+layout <- get_layout(
+  "VC1", "", "", "", "", "",
+  "VC2", "", "", "SPJ", "", "",
+  "LC", "", "", "", "", "",
+  "GPJ", "", "", "", "NL", "",
+  "ExPJ", "", "", "", "", "",
+  "", "", "", "", "", "",
+  "PE", "DJ", "Male_split", "region_split", "SDS", "",
+  rows = 7
+)
+
+# Create and plot the graph
+graph <- graph_sem(nodes = nodes, edges = edges, layout = layout)
+plot(graph,
+     rect.width = 5,
+     rect.height = 2,
+     edge.label.cex = 0.8,
+     node.label.cex = 0.8,
+     node.color = "lightblue",
+     node.frame.color = "black",
+     node.shape = "rectangle",
+     title = "Path Analysis Model")
+
+# Create a table for the legend with GPJ preceding ExPJ
+legend_table <- data.frame(
+  Abbreviation = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "ExPJ", "SPJ", "NL", "Male_split", "region_split", "SDS"),
+  Full_Name = c("Neutral Video", "Positive Video", "Police Effectiveness",
+                "Distributive Justice", "Legal Cynicism", "Global PJ",
+                "Expected PJ", "Specific PJ", "Normative Legitimacy",
+                "Male", "Region", "SDS")
+)
+
+# Display the tables side by side
+legend_table_html <- legend_table %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  as.character()
+
+significant_paths_html <- significant_paths %>%
+  dplyr::select(rhs, lhs, std.all, pvalue) %>%
+  rename(From = rhs, To = lhs, Std_Estimate = std.all, P_Value = pvalue) %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  add_header_above(c("Significant Pathways" = 4)) %>%
+  as.character()
+
+# Use HTML to display tables side by side
+HTML(paste0('<div style="display: flex; flex-direction: row;">',
+            '<div style="margin-right: 20px;">', legend_table_html, '</div>',
+            '<div>', significant_paths_html, '</div>',
+            '</div>'))
+
+```
+
+## Path Analysis 2 - Normative Legitimacy with GPJ Moderation and controls: Male, Region, SDS
+
+```{r, echo=FALSE, warning=FALSE}
+# Convert 'video_condition' to a factor with explicitly defined levels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Dummy code 'video_condition'
+df <- df %>%
+  mutate(
+    video_condition_1 = ifelse(video_condition == 1, 1, 0),
+    video_condition_2 = ifelse(video_condition == 2, 1, 0)
+  )
+
+# Create interaction terms for moderation
+df <- df %>%
+  mutate(
+    VC1_GPJ = video_condition_1 * global_pj,
+    VC2_GPJ = video_condition_2 * global_pj
+  )
+
+# Create duplicate columns with shorter names
+df <- df %>%
+  mutate(
+    VC1 = video_condition_1,
+    VC2 = video_condition_2,
+    PE = pol_effect,
+    DJ = dist_just,
+    LC = legal_cyn,
+    GPJ = global_pj,
+    SPJ = specific_pj,
+    NL = norm_leg,
+    ExPJ = expected_pj,     # Add expected_pj variable
+    Male = Male_split,  # Add Male_split variable as Male
+    Region = region_split,  # Add region_split variable as Region
+    SDS = SDS               # Add SDS variable
+  )
+
+# Remove rows with missing values in the relevant columns
+df <- df[!is.na(df$NL) & !is.na(df$SPJ) & !is.na(df$VC1) & !is.na(df$VC2) &
+         !is.na(df$LC) & !is.na(df$PE) & !is.na(df$DJ) & !is.na(df$GPJ) & 
+         !is.na(df$ExPJ) & !is.na(df$VC1_GPJ) & !is.na(df$VC2_GPJ) & 
+         !is.na(df$Male) & !is.na(df$Region) & !is.na(df$SDS), ]
+
+# Define the model specification with interaction terms
+model_spec_mod <- '
+  # Direct effects on norm_leg (NL)
+  NL ~ c1*VC1 + c2*VC2 + PE + DJ + LC + ExPJ + GPJ + b*SPJ + Male + Region + SDS
+
+  # Direct effects on specific_pj (SPJ)
+  SPJ ~ a1*VC1 + a2*VC2 + a3*LC + a4*ExPJ + a5*GPJ + i1*VC1_GPJ + i2*VC2_GPJ
+
+  # Indirect effects through SPJ on norm_leg (NL)
+  indirect_VC1_NL := a1 * b
+  indirect_VC2_NL := a2 * b
+  indirect_LC_NL := a3 * b
+  indirect_ExPJ_NL := a4 * b
+  indirect_GPJ_NL := a5 * b
+
+  # Moderation effects on specific_pj (SPJ)
+  interaction_VC1_GPJ_SPJ := i1 * b
+  interaction_VC2_GPJ_SPJ := i2 * b
+'
+
+# Fit the revised path model with moderation
+fit_mod <- sem(model_spec_mod, data = df)
+
+# Summarize the results with standardized estimates and fit measures
+summary_fit_mod <- summary(fit_mod, standardized = TRUE, fit.measures = TRUE)
+print(summary_fit_mod)
+
+# Obtain detailed fit indices
+fit_measures_mod <- fitMeasures(fit_mod)
+print(fit_measures_mod)
+
+# Extract path coefficients and significance levels
+parameter_estimates_mod <- parameterEstimates(fit_mod, standardized = TRUE)
+
+# Extract significant pathways (p < 0.05)
+significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue < 0.05)
+
+# Create node list including interaction terms
+nodes_mod <- data.frame(
+  name = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "SPJ", "NL", "ExPJ", "SDS", "Male", "Region", "VC1_GPJ", "VC2_GPJ"),
+  label = c("Neutral Video", "Positive Video", "Police Effective",
+            "Distributive Justice", "Legal Cynicism", "Global PJ",
+            "Specific PJ", "Normative Legitimacy", "Expected PJ", "SDS", "Male", "Region", 
+            "VC1 * GPJ", "VC2 * GPJ")
+)
+
+# Create edge list with colors based on significance
+edges_mod <- significant_paths_mod %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = ifelse(pvalue < 0.05, "red", "black"),
+    size = ifelse(pvalue < 0.05, 1.5, 1)
+  )
+
+# Combine non-significant paths for comparison
+non_significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue >= 0.05) %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = "black",
+    size = 1
+  )
+
+# Combine significant and non-significant edges
+edges_mod <- dplyr::bind_rows(edges_mod, non_significant_paths_mod)
+
+# Define custom layout for the graph including interaction terms
+layout_mod <- get_layout(
+  "", "VC1_GPJ", "VC2_GPJ", "", "",
+  "VC1", "", "", "", "",
+  "VC2", "", "", "SPJ", "",
+  "GPJ", "", "", "", "",
+  "ExPJ", "", "", "", "NL",
+  "LC", "", "", "", "",
+  "", "", "", "", "",
+  "PE", "DJ", "Male", "Region", "SDS",
+  rows = 8
+)
+
+# Create and plot the graph
+graph_mod <- graph_sem(nodes = nodes_mod, edges = edges_mod, layout = layout_mod)
+plot(graph_mod,
+     rect.width = 5,
+     rect.height = 2,
+     edge.label.cex = 0.8,
+     node.label.cex = 0.8,
+     node.color = "lightblue",
+     node.frame.color = "black",
+     node.shape = "rectangle",
+     title = "Path Analysis Model with Updated Variables")
+
+# Create a table for the legend
+legend_table_mod <- data.frame(
+  Abbreviation = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "SPJ", "NL", "ExPJ", "SDS", "Male", "Region", "VC1_GPJ", "VC2_GPJ"),
+  Full_Name = c("Neutral Video", "Positive Video", "Police Effectiveness",
+                "Distributive Justice", "Legal Cynicism", "Global PJ",
+                "Specific PJ", "Normative Legitimacy", "Expected PJ",
+                "SDS", "Male", "Region", 
+                "Neut Vid * GPJ", "Pos Vid * GPJ")
+)
+
+# Display the tables side by side
+legend_table_html_mod <- legend_table_mod %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  as.character()
+
+significant_paths_html_mod <- significant_paths_mod %>%
+  dplyr::select(lhs, rhs, std.all, pvalue) %>%
+  rename(From = rhs, To = lhs, Std_Estimate = std.all, P_Value = pvalue) %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  add_header_above(c("Significant Pathways" = 4)) %>%
+  as.character()
+
+# Use HTML to display tables side by side
+HTML(paste0('<div style="display: flex; flex-direction: row;">',
+            '<div style="margin-right: 20px;">', legend_table_html_mod, '</div>',
+            '<div>', significant_paths_html_mod, '</div>',
+            '</div>'))
+```
+
+## Path Analysis 3 - Legitimacy with ExPJ Mod, & Controls: Male, Region, & SDS
+
+```{r, echo=FALSE, warning=FALSE}
+# Convert 'video_condition' to a factor with explicitly defined levels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Dummy code 'video_condition'
+df <- df %>%
+  mutate(
+    video_condition_1 = ifelse(video_condition == 1, 1, 0),
+    video_condition_2 = ifelse(video_condition == 2, 1, 0)
+  )
+
+# Create interaction terms for moderation
+df <- df %>%
+  mutate(
+    VC1_ExPJ = video_condition_1 * expected_pj,
+    VC2_ExPJ = video_condition_2 * expected_pj
+  )
+
+# Create duplicate columns with shorter names
+df <- df %>%
+  mutate(
+    VC1 = video_condition_1,
+    VC2 = video_condition_2,
+    PE = pol_effect,
+    DJ = dist_just,
+    LC = legal_cyn,
+    GPJ = global_pj,
+    SPJ = specific_pj,
+    NL = norm_leg,
+    ExPJ = expected_pj,     # Add expected_pj variable
+    Male = Male_split,  # Change age to Male_split as Male
+    Region = region_split,  # Change arrest to region_split as Region
+    SDS = SDS               # Change BSC to SDS
+  )
+
+# Remove rows with missing values in the relevant columns
+df <- df[!is.na(df$NL) & !is.na(df$SPJ) & !is.na(df$VC1) & !is.na(df$VC2) &
+         !is.na(df$LC) & !is.na(df$PE) & !is.na(df$DJ) & !is.na(df$GPJ) & 
+         !is.na(df$ExPJ) & !is.na(df$VC1_ExPJ) & !is.na(df$VC2_ExPJ) & 
+         !is.na(df$Male) & !is.na(df$Region) & !is.na(df$SDS), ]
+
+# Define the model specification with interaction terms
+model_spec_mod <- '
+  # Direct effects on norm_leg (NL)
+  NL ~ c1*VC1 + c2*VC2 + PE + DJ + LC + ExPJ + GPJ + b*SPJ + Male + Region + SDS
+
+  # Direct effects on specific_pj (SPJ)
+  SPJ ~ a1*VC1 + a2*VC2 + a3*LC + a4*ExPJ + a5*GPJ + i1*VC1_ExPJ + i2*VC2_ExPJ
+
+  # Indirect effects through SPJ on norm_leg (NL)
+  indirect_VC1_NL := a1 * b
+  indirect_VC2_NL := a2 * b
+  indirect_LC_NL := a3 * b
+  indirect_ExPJ_NL := a4 * b
+  indirect_GPJ_NL := a5 * b
+
+  # Moderation effects on specific_pj (SPJ)
+  interaction_VC1_ExPJ_SPJ := i1 * b
+  interaction_VC2_ExPJ_SPJ := i2 * b
+'
+
+# Fit the revised path model with moderation
+fit_mod <- sem(model_spec_mod, data = df)
+
+# Summarize the results with standardized estimates and fit measures
+summary_fit_mod <- summary(fit_mod, standardized = TRUE, fit.measures = TRUE)
+print(summary_fit_mod)
+
+# Obtain detailed fit indices
+fit_measures_mod <- fitMeasures(fit_mod)
+print(fit_measures_mod)
+
+# Extract path coefficients and significance levels
+parameter_estimates_mod <- parameterEstimates(fit_mod, standardized = TRUE)
+
+# Extract significant pathways (p < 0.05)
+significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue < 0.05)
+
+# Create node list including interaction terms
+nodes_mod <- data.frame(
+  name = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "SPJ", "NL", "ExPJ", "SDS", "Male", "Region", "VC1_ExPJ", "VC2_ExPJ"),
+  label = c("Neutral Video", "Positive Video", "Police Effective",
+            "Distributive Justice", "Legal Cynicism", "Global PJ",
+            "Specific PJ", "Normative Legitimacy", "Expected PJ", "SDS", "Male", "Region", 
+            "VC1 * ExPJ", "VC2 * ExPJ")
+)
+
+# Create edge list with colors based on significance
+edges_mod <- significant_paths_mod %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = ifelse(pvalue < 0.05, "red", "black"),
+    size = ifelse(pvalue < 0.05, 1.5, 1)
+  )
+
+# Combine non-significant paths for comparison
+non_significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue >= 0.05) %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = "black",
+    size = 1
+  )
+
+# Combine significant and non-significant edges
+edges_mod <- dplyr::bind_rows(edges_mod, non_significant_paths_mod)
+
+# Define custom layout for the graph including interaction terms
+layout_mod <- get_layout(
+  "", "VC1_ExPJ", "VC2_ExPJ", "", "",
+  "VC1", "", "", "", "",
+  "VC2", "", "", "SPJ", "",
+  "GPJ", "", "", "", "",
+  "ExPJ", "", "", "", "NL",
+  "LC", "", "", "", "",
+  "", "", "", "", "",
+  "PE", "DJ", "Male", "Region", "SDS",
+  rows = 8
+)
+
+# Create and plot the graph
+graph_mod <- graph_sem(nodes = nodes_mod, edges = edges_mod, layout = layout_mod)
+plot(graph_mod,
+     rect.width = 5,
+     rect.height = 2,
+     edge.label.cex = 0.8,
+     node.label.cex = 0.8,
+     node.color = "lightblue",
+     node.frame.color = "black",
+     node.shape = "rectangle",
+     title = "Path Analysis Model with Updated Variables")
+
+# Create a table for the legend
+legend_table_mod <- data.frame(
+  Abbreviation = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "SPJ", "NL", "ExPJ", "SDS", "Male", "Region", "VC1_ExPJ", "VC2_ExPJ"),
+  Full_Name = c("Neutral Video", "Positive Video", "Police Effectiveness",
+                "Distributive Justice", "Legal Cynicism", "Global PJ",
+                "Specific PJ", "Normative Legitimacy", "Expected PJ",
+                "SDS", "Male", "Region", 
+                "Neut Vid * ExPJ", "Pos Vid * ExPJ")
+)
+
+# Display the tables side by side
+legend_table_html_mod <- legend_table_mod %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  as.character()
+
+significant_paths_html_mod <- significant_paths_mod %>%
+  dplyr::select(lhs, rhs, std.all, pvalue) %>%
+  rename(From = rhs, To = lhs, Std_Estimate = std.all, P_Value = pvalue) %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  add_header_above(c("Significant Pathways" = 4)) %>%
+  as.character()
+
+# Use HTML to display tables side by side
+HTML(paste0('<div style="display: flex; flex-direction: row;">',
+            '<div style="margin-right: 20px;">', legend_table_html_mod, '</div>',
+            '<div>', significant_paths_html_mod, '</div>',
+            '</div>'))
+
+```
+
+## Path Analysis 4 - Legitimacy with ExPJ Mod, & Controls: Male & SDS
+
+```{r, echo=FALSE, warning=FALSE}
+# Convert 'video_condition' to a factor with explicitly defined levels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Dummy code 'video_condition'
+df <- df %>%
+  mutate(
+    video_condition_1 = ifelse(video_condition == 1, 1, 0),
+    video_condition_2 = ifelse(video_condition == 2, 1, 0)
+  )
+
+# Create interaction terms for moderation
+df <- df %>%
+  mutate(
+    VC1_ExPJ = video_condition_1 * expected_pj,
+    VC2_ExPJ = video_condition_2 * expected_pj
+  )
+
+# Create duplicate columns with shorter names
+df <- df %>%
+  mutate(
+    VC1 = video_condition_1,
+    VC2 = video_condition_2,
+    PE = pol_effect,
+    DJ = dist_just,
+    LC = legal_cyn,
+    GPJ = global_pj,
+    SPJ = specific_pj,
+    NL = norm_leg,
+    ExPJ = expected_pj,  # Add expected_pj variable
+    Male_split = Male_split, # Change age to Male_split
+    SDS = SDS  # Change BSC to SDS
+  )
+
+# Remove rows with missing values in the relevant columns
+df <- df[!is.na(df$NL) & !is.na(df$SPJ) & !is.na(df$VC1) & !is.na(df$VC2) &
+         !is.na(df$LC) & !is.na(df$PE) & !is.na(df$DJ) & !is.na(df$GPJ) & 
+         !is.na(df$ExPJ) & !is.na(df$VC1_ExPJ) & !is.na(df$VC2_ExPJ), ]
+
+# Define the model specification with interaction terms
+model_spec_mod <- '
+  # Direct effects on norm_leg (NL)
+  NL ~ c1*VC1 + c2*VC2 + PE + DJ + LC + ExPJ + GPJ + b*SPJ + Male_split + SDS
+
+  # Direct effects on specific_pj (SPJ)
+  SPJ ~ a1*VC1 + a2*VC2 + a3*LC + a4*ExPJ + a5*GPJ + i1*VC1_ExPJ + i2*VC2_ExPJ
+
+  # Indirect effects through SPJ on norm_leg (NL)
+  indirect_VC1_NL := a1 * b
+  indirect_VC2_NL := a2 * b
+  indirect_LC_NL := a3 * b
+  indirect_ExPJ_NL := a4 * b
+  indirect_GPJ_NL := a5 * b
+
+  # Moderation effects on specific_pj (SPJ)
+  interaction_VC1_ExPJ_SPJ := i1 * b
+  interaction_VC2_ExPJ_SPJ := i2 * b
+'
+
+# Fit the revised path model with moderation
+fit_mod <- sem(model_spec_mod, data = df)
+
+# Summarize the results with standardized estimates and fit measures
+summary_fit_mod <- summary(fit_mod, standardized = TRUE, fit.measures = TRUE)
+print(summary_fit_mod)
+
+# Obtain detailed fit indices
+fit_measures_mod <- fitMeasures(fit_mod)
+print(fit_measures_mod)
+
+# Extract path coefficients and significance levels
+parameter_estimates_mod <- parameterEstimates(fit_mod, standardized = TRUE)
+
+# Extract significant pathways (p < 0.05)
+significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue < 0.05)
+
+# Create node list including interaction terms
+nodes_mod <- data.frame(
+  name = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "SPJ", "NL", "ExPJ", "SDS", "Male_split", "VC1_ExPJ", "VC2_ExPJ"),
+  label = c("Neutral Video", "Positive Video", "Police Effective",
+            "Distributive Justice", "Legal Cynicism", "Global PJ",
+            "Specific PJ", "Normative Legitimacy", "Expected PJ", "SDS", "Male", 
+            "VC1 * ExPJ", "VC2 * ExPJ")
+)
+
+# Create edge list with colors based on significance
+edges_mod <- significant_paths_mod %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = ifelse(pvalue < 0.05, "red", "black"),
+    size = ifelse(pvalue < 0.05, 1.5, 1)
+  )
+
+# Combine non-significant paths for comparison
+non_significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue >= 0.05) %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = "black",
+    size = 1
+  )
+
+# Combine significant and non-significant edges
+edges_mod <- dplyr::bind_rows(edges_mod, non_significant_paths_mod)
+
+# Define custom layout for the graph including interaction terms
+layout_mod <- get_layout(
+  "", "VC1_ExPJ", "VC2_ExPJ", "", "",
+  "VC1", "", "", "", "",
+  "VC2", "", "", "SPJ", "",
+  "GPJ", "", "", "", "",
+  "ExPJ", "", "", "", "NL",
+  "LC", "", "", "", "",
+  "", "", "", "", "",
+  "PE", "DJ", "", "Male_split", "SDS",
+  rows = 8
+)
+
+# Create and plot the graph
+graph_mod <- graph_sem(nodes = nodes_mod, edges = edges_mod, layout = layout_mod)
+plot(graph_mod,
+     rect.width = 5,
+     rect.height = 2,
+     edge.label.cex = 0.8,
+     node.label.cex = 0.8,
+     node.color = "lightblue",
+     node.frame.color = "black",
+     node.shape = "rectangle",
+     title = "Path Analysis Model with Updated Variables")
+
+# Create a table for the legend
+legend_table_mod <- data.frame(
+  Abbreviation = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "SPJ", "NL", "ExPJ", "SDS", "Male_split", "VC1_ExPJ", "VC2_ExPJ"),
+  Full_Name = c("Neutral Video", "Positive Video", "Police Effectiveness",
+                "Distributive Justice", "Legal Cynicism", "Global PJ",
+                "Specific PJ", "Normative Legitimacy", "Expected PJ",
+                "SDS", "Male Split", 
+                "Neut Vid * ExPJ", "Pos Vid * ExPJ")
+)
+
+# Display the tables side by side
+legend_table_html_mod <- legend_table_mod %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  as.character()
+
+significant_paths_html_mod <- significant_paths_mod %>%
+  dplyr::select(lhs, rhs, std.all, pvalue) %>%
+  rename(From = rhs, To = lhs, Std_Estimate = std.all, P_Value = pvalue) %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  add_header_above(c("Significant Pathways" = 4)) %>%
+  as.character()
+
+# Use HTML to display tables side by side
+HTML(paste0('<div style="display: flex; flex-direction: row;">',
+            '<div style="margin-right: 20px;">', legend_table_html_mod, '</div>',
+            '<div>', significant_paths_html_mod, '</div>',
+            '</div>'))
+
+```
+
+### Path Analysis 4.5 - Legitimacy with ExPJ Mod, & Controls: Male & SDS
+
+```{r, echo=FALSE, warning=FALSE}
+# Convert 'video_condition' to a factor with explicitly defined levels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Dummy code 'video_condition'
+df <- df %>%
+  mutate(
+    video_condition_1 = ifelse(video_condition == 1, 1, 0),
+    video_condition_2 = ifelse(video_condition == 2, 1, 0)
+  )
+
+# Create interaction terms for moderation
+df <- df %>%
+  mutate(
+    VC1_ExPJ = video_condition_1 * expected_pj,
+    VC2_ExPJ = video_condition_2 * expected_pj
+  )
+
+# Create duplicate columns with shorter names
+df <- df %>%
+  mutate(
+    VC1 = video_condition_1,
+    VC2 = video_condition_2,
+    DJ = dist_just,
+    GPJ = global_pj,
+    SPJ = specific_pj,
+    NL = norm_leg,
+    ExPJ = expected_pj,  # Add expected_pj variable
+    Male_split = Male_split, # Change age to Male_split
+    SDS = SDS  # Change BSC to SDS
+  )
+
+# Remove rows with missing values in the relevant columns
+df <- df[!is.na(df$NL) & !is.na(df$SPJ) & !is.na(df$VC1) & !is.na(df$VC2) &
+         !is.na(df$DJ) & !is.na(df$GPJ) & !is.na(df$ExPJ) & !is.na(df$VC1_ExPJ) & 
+         !is.na(df$VC2_ExPJ), ]
+
+# Define the updated model specification without pol_effect (PE) and legal_cyn (LC)
+model_spec_mod <- '
+  # Direct effects on norm_leg (NL)
+  NL ~ c1*VC1 + c2*VC2 + DJ + ExPJ + GPJ + b*SPJ + Male_split + SDS
+
+  # Direct effects on specific_pj (SPJ)
+  SPJ ~ a1*VC1 + a2*VC2 + a4*ExPJ + a5*GPJ + i1*VC1_ExPJ + i2*VC2_ExPJ
+
+  # Indirect effects through SPJ on norm_leg (NL)
+  indirect_VC1_NL := a1 * b
+  indirect_VC2_NL := a2 * b
+  indirect_ExPJ_NL := a4 * b
+  indirect_GPJ_NL := a5 * b
+
+  # Moderation effects on specific_pj (SPJ)
+  interaction_VC1_ExPJ_SPJ := i1 * b
+  interaction_VC2_ExPJ_SPJ := i2 * b
+'
+
+# Fit the revised path model with moderation
+fit_mod <- sem(model_spec_mod, data = df)
+
+# Summarize the results with standardized estimates and fit measures
+summary_fit_mod <- summary(fit_mod, standardized = TRUE, fit.measures = TRUE)
+print(summary_fit_mod)
+
+# Obtain detailed fit indices
+fit_measures_mod <- fitMeasures(fit_mod)
+print(fit_measures_mod)
+
+# Extract path coefficients and significance levels
+parameter_estimates_mod <- parameterEstimates(fit_mod, standardized = TRUE)
+
+# Extract significant pathways (p < 0.05)
+significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue < 0.05)
+
+# Create node list including interaction terms
+nodes_mod <- data.frame(
+  name = c("VC1", "VC2", "DJ", "GPJ", "SPJ", "NL", "ExPJ", "SDS", "Male_split", "VC1_ExPJ", "VC2_ExPJ"),
+  label = c("Neutral Video", "Positive Video", "Distributive Justice", "Global PJ", "Specific PJ", "Normative Legitimacy", "Expected PJ", "SDS", "Male", "VC1 * ExPJ", "VC2 * ExPJ")
+)
+
+# Create edge list with colors based on significance
+edges_mod <- significant_paths_mod %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = ifelse(pvalue < 0.05, "red", "black"),
+    size = ifelse(pvalue < 0.05, 1.5, 1)
+  )
+
+# Combine non-significant paths for comparison
+non_significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue >= 0.05) %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = "black",
+    size = 1
+  )
+
+# Combine significant and non-significant edges
+edges_mod <- dplyr::bind_rows(edges_mod, non_significant_paths_mod)
+
+# Define custom layout for the graph including interaction terms
+layout_mod <- get_layout(
+  "", "VC1_ExPJ", "VC2_ExPJ", "", "",
+  "VC1", "", "", "", "",
+  "VC2", "", "", "SPJ", "",
+  "GPJ", "", "", "", "",
+  "ExPJ", "", "", "", "NL",
+  "", "", "", "", "",
+  "DJ", "", "", "Male_split", "SDS",
+  rows = 7
+)
+
+# Create and plot the graph
+graph_mod <- graph_sem(nodes = nodes_mod, edges = edges_mod, layout = layout_mod)
+plot(graph_mod,
+     rect.width = 5,
+     rect.height = 2,
+     edge.label.cex = 0.8,
+     node.label.cex = 0.8,
+     node.color = "lightblue",
+     node.frame.color = "black",
+     node.shape = "rectangle",
+     title = "Path Analysis Model with Updated Variables")
+
+# Create a table for the legend
+legend_table_mod <- data.frame(
+  Abbreviation = c("VC1", "VC2", "DJ", "GPJ", "SPJ", "NL", "ExPJ", "SDS", "Male_split", "VC1_ExPJ", "VC2_ExPJ"),
+  Full_Name = c("Neutral Video", "Positive Video", "Distributive Justice", "Global PJ", "Specific PJ", "Normative Legitimacy", "Expected PJ", "SDS", "Male Split", "Neut Vid * ExPJ", "Pos Vid * ExPJ")
+)
+
+# Display the tables side by side
+legend_table_html_mod <- legend_table_mod %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  as.character()
+
+significant_paths_html_mod <- significant_paths_mod %>%
+  dplyr::select(lhs, rhs, std.all, pvalue) %>%
+  rename(From = rhs, To = lhs, Std_Estimate = std.all, P_Value = pvalue) %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  add_header_above(c("Significant Pathways" = 4)) %>%
+  as.character()
+
+# Use HTML to display tables side by side
+HTML(paste0('<div style="display: flex; flex-direction: row;">',
+            '<div style="margin-right: 20px;">', legend_table_html_mod, '</div>',
+            '<div>', significant_paths_html_mod, '</div>',
+            '</div>'))
+```
+
+### Path Analysis 4.5 - Cross-validation
+
+```{r, echo=FALSE, warning=FALSE}
+# Define the model specification without pol_effect (PE) and legal_cyn (LC)
+model_spec_mod <- '
+  # Direct effects on norm_leg (NL)
+  NL ~ c1*VC1 + c2*VC2 + DJ + ExPJ + GPJ + b*SPJ + Male_split + SDS
+
+  # Direct effects on specific_pj (SPJ)
+  SPJ ~ a1*VC1 + a2*VC2 + a4*ExPJ + a5*GPJ + i1*VC1_ExPJ + i2*VC2_ExPJ
+
+  # Indirect effects through SPJ on norm_leg (NL)
+  indirect_VC1_NL := a1 * b
+  indirect_VC2_NL := a2 * b
+  indirect_ExPJ_NL := a4 * b
+  indirect_GPJ_NL := a5 * b
+
+  # Moderation effects on specific_pj (SPJ)
+  interaction_VC1_ExPJ_SPJ := i1 * b
+  interaction_VC2_ExPJ_SPJ := i2 * b
+'
+
+# Split the data into training and testing sets
+set.seed(123)
+trainIndex <- createDataPartition(df$NL, p = .5, 
+                                  list = FALSE, 
+                                  times = 1)
+trainData <- df[trainIndex,]
+testData <- df[-trainIndex,]
+
+# Fit the model on the training data
+fit_mod_train <- sem(model_spec_mod, data = trainData)
+
+# Summarize the training fit
+summary(fit_mod_train, standardized = TRUE, fit.measures = TRUE)
+
+# Predict on the test data
+predictions <- predict(fit_mod_train, newdata = testData)
+
+# Compare predictions with actual values
+actuals <- testData$NL
+cor(predictions, actuals)
+```
+
+### Path Analysis 4.5 - Bootstrap Validation
+
+```{r, echo=FALSE, warning=FALSE}
+# Perform bootstrap validation
+fit_bootstrap <- sem(model_spec_mod, data = df, se = "bootstrap", bootstrap = 1000)
+
+# Summarize the bootstrap results
+summary(fit_bootstrap, standardized = TRUE, fit.measures = TRUE)
+```
+
+
+## Path Analysis 5 - Legitimacy with ExPJ & GPJ Mod, & Controls: Male & SDS
+
+```{r, echo=FALSE, warning=FALSE}
+# Convert 'video_condition' to a factor with explicitly defined levels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Dummy code 'video_condition'
+df <- df %>%
+  mutate(
+    video_condition_1 = ifelse(video_condition == 1, 1, 0),
+    video_condition_2 = ifelse(video_condition == 2, 1, 0)
+  )
+
+# Create interaction terms for moderation
+df <- df %>%
+  mutate(
+    VC1_ExPJ = video_condition_1 * expected_pj,
+    VC2_ExPJ = video_condition_2 * expected_pj,
+    VC1_GPJ = video_condition_1 * global_pj,
+    VC2_GPJ = video_condition_2 * global_pj
+  )
+
+# Create duplicate columns with shorter names
+df <- df %>%
+  mutate(
+    VC1 = video_condition_1,
+    VC2 = video_condition_2,
+    PE = pol_effect,
+    DJ = dist_just,
+    LC = legal_cyn,
+    GPJ = global_pj,
+    SPJ = specific_pj,
+    NL = norm_leg,
+    ExPJ = expected_pj,  # Add expected_pj variable
+    Male_split = Male_split, # Change age to Male_split
+    SDS = SDS  # Change BSC to SDS
+  )
+
+# Remove rows with missing values in the relevant columns
+df <- df[!is.na(df$NL) & !is.na(df$SPJ) & !is.na(df$VC1) & !is.na(df$VC2) &
+         !is.na(df$LC) & !is.na(df$PE) & !is.na(df$DJ) & !is.na(df$GPJ) & 
+         !is.na(df$ExPJ) & !is.na(df$VC1_ExPJ) & !is.na(df$VC2_ExPJ) &
+         !is.na(df$VC1_GPJ) & !is.na(df$VC2_GPJ), ]
+
+# Define the model specification with interaction terms
+model_spec_mod <- '
+  # Direct effects on norm_leg (NL)
+  NL ~ c1*VC1 + c2*VC2 + PE + DJ + LC + ExPJ + GPJ + b*SPJ + Male_split + SDS
+
+  # Direct effects on specific_pj (SPJ)
+  SPJ ~ a1*VC1 + a2*VC2 + a3*LC + a4*ExPJ + a5*GPJ + i1*VC1_ExPJ + i2*VC2_ExPJ + i3*VC1_GPJ + i4*VC2_GPJ
+
+  # Indirect effects through SPJ on norm_leg (NL)
+  indirect_VC1_NL := a1 * b
+  indirect_VC2_NL := a2 * b
+  indirect_LC_NL := a3 * b
+  indirect_ExPJ_NL := a4 * b
+  indirect_GPJ_NL := a5 * b
+
+  # Moderation effects on specific_pj (SPJ)
+  interaction_VC1_ExPJ_SPJ := i1 * b
+  interaction_VC2_ExPJ_SPJ := i2 * b
+  interaction_VC1_GPJ_SPJ := i3 * b
+  interaction_VC2_GPJ_SPJ := i4 * b
+'
+
+# Fit the revised path model with moderation
+fit_mod <- sem(model_spec_mod, data = df)
+
+# Summarize the results with standardized estimates and fit measures
+summary_fit_mod <- summary(fit_mod, standardized = TRUE, fit.measures = TRUE)
+print(summary_fit_mod)
+
+# Obtain detailed fit indices
+fit_measures_mod <- fitMeasures(fit_mod)
+print(fit_measures_mod)
+
+# Extract path coefficients and significance levels
+parameter_estimates_mod <- parameterEstimates(fit_mod, standardized = TRUE)
+
+# Extract significant pathways (p < 0.05)
+significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue < 0.05)
+
+# Create node list including interaction terms
+nodes_mod <- data.frame(
+  name = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "SPJ", "NL", "ExPJ", "SDS", "Male_split", "VC1_ExPJ", "VC2_ExPJ", "VC1_GPJ", "VC2_GPJ"),
+  label = c("Neutral Video", "Positive Video", "Police Effective",
+            "Distributive Justice", "Legal Cynicism", "Global PJ",
+            "Specific PJ", "Normative Legitimacy", "Expected PJ", "SDS", "Male", 
+            "VC1 * ExPJ", "VC2 * ExPJ", "VC1 * GPJ", "VC2 * GPJ")
+)
+
+# Create edge list with colors based on significance
+edges_mod <- significant_paths_mod %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = ifelse(pvalue < 0.05, "red", "black"),
+    size = ifelse(pvalue < 0.05, 1.5, 1)
+  )
+
+# Combine non-significant paths for comparison
+non_significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue >= 0.05) %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = "black",
+    size = 1
+  )
+
+# Combine significant and non-significant edges
+edges_mod <- dplyr::bind_rows(edges_mod, non_significant_paths_mod)
+
+# Define custom layout for the graph including interaction terms
+layout_mod <- get_layout(
+  "", "VC1_ExPJ", "VC2_ExPJ", "VC1_GPJ", "VC2_GPJ",
+  "VC1", "", "", "", "",
+  "VC2", "", "", "SPJ", "",
+  "GPJ", "", "", "", "",
+  "ExPJ", "", "", "", "NL",
+  "LC", "", "", "", "",
+  "", "", "", "", "",
+  "PE", "DJ", "", "Male_split", "SDS",
+  rows = 8
+)
+
+# Create and plot the graph
+graph_mod <- graph_sem(nodes = nodes_mod, edges = edges_mod, layout = layout_mod)
+plot(graph_mod,
+     rect.width = 5,
+     rect.height = 2,
+     edge.label.cex = 0.8,
+     node.label.cex = 0.8,
+     node.color = "lightblue",
+     node.frame.color = "black",
+     node.shape = "rectangle",
+     title = "Path Analysis Model with Updated Variables")
+
+# Create a table for the legend
+legend_table_mod <- data.frame(
+  Abbreviation = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "SPJ", "NL", "ExPJ", "SDS", "Male_split", "VC1_ExPJ", "VC2_ExPJ", "VC1_GPJ", "VC2_GPJ"),
+  Full_Name = c("Neutral Video", "Positive Video", "Police Effectiveness",
+                "Distributive Justice", "Legal Cynicism", "Global PJ",
+                "Specific PJ", "Normative Legitimacy", "Expected PJ",
+                "SDS", "Male Split", 
+                "Neut Vid * ExPJ", "Pos Vid * ExPJ", "Neut Vid * GPJ", "Pos Vid * GPJ")
+)
+
+# Display the tables side by side
+legend_table_html_mod <- legend_table_mod %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  as.character()
+
+significant_paths_html_mod <- significant_paths_mod %>%
+  dplyr::select(lhs, rhs, std.all, pvalue) %>%
+  rename(From = rhs, To = lhs, Std_Estimate = std.all, P_Value = pvalue) %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  add_header_above(c("Significant Pathways" = 4)) %>%
+  as.character()
+
+# Use HTML to display tables side by side
+HTML(paste0('<div style="display: flex; flex-direction: row;">',
+            '<div style="margin-right: 20px;">', legend_table_html_mod, '</div>',
+            '<div>', significant_paths_html_mod, '</div>',
+            '</div>'))
+
+```
+
+## Path Analysis 6 - Legitimacy & Non-normative Legitimacy with ExPJ Mod, & Controls: Male & SDS
+
+```{r, echo=FALSE, warning=FALSE}
+# Convert 'video_condition' to a factor with explicitly defined levels
+df$video_condition <- factor(df$video_condition, levels = c(0, 1, 2))
+
+# Dummy code 'video_condition'
+df <- df %>%
+  mutate(
+    video_condition_1 = ifelse(video_condition == 1, 1, 0),
+    video_condition_2 = ifelse(video_condition == 2, 1, 0)
+  )
+
+# Create interaction terms for moderation
+df <- df %>%
+  mutate(
+    VC1_ExPJ = video_condition_1 * expected_pj,
+    VC2_ExPJ = video_condition_2 * expected_pj
+  )
+
+# Create duplicate columns with shorter names
+df <- df %>%
+  mutate(
+    VC1 = video_condition_1,
+    VC2 = video_condition_2,
+    PE = pol_effect,
+    DJ = dist_just,
+    LC = legal_cyn,
+    GPJ = global_pj,
+    SPJ = specific_pj,
+    NL = norm_leg,
+    ExPJ = expected_pj,
+    Male = Male_split,
+    Reg = region_split,
+    SDS = SDS,
+    NNL = nonnorm_leg  # Add NNL to the dataset
+  )
+
+# Remove rows with missing values in the relevant columns
+df <- df[!is.na(df$NL) & !is.na(df$NNL) & !is.na(df$SPJ) & !is.na(df$VC1) & !is.na(df$VC2) &
+         !is.na(df$LC) & !is.na(df$PE) & !is.na(df$DJ) & !is.na(df$GPJ) & 
+         !is.na(df$ExPJ) & !is.na(df$VC1_ExPJ) & !is.na(df$VC2_ExPJ) & 
+         !is.na(df$Male) & !is.na(df$Reg) & !is.na(df$SDS), ]
+
+# Define the model specification with interaction terms
+model_spec_mod <- '
+  # Direct effects on norm_leg (NL)
+  NL ~ c1*VC1 + c2*VC2 + PE + DJ + LC + ExPJ + GPJ + b*SPJ + Male + Reg + SDS
+
+  # Direct effects on non_norm_leg (NNL)
+  NNL ~ d1*VC1 + d2*VC2 + PE + DJ + LC + ExPJ + GPJ + e*SPJ + Male + Reg + SDS
+
+  # Direct effects on specific_pj (SPJ)
+  SPJ ~ a1*VC1 + a2*VC2 + a3*LC + a4*ExPJ + a5*GPJ + i1*VC1_ExPJ + i2*VC2_ExPJ
+
+  # Indirect effects through SPJ on norm_leg (NL)
+  indirect_VC1_NL := a1 * b
+  indirect_VC2_NL := a2 * b
+  indirect_LC_NL := a3 * b
+  indirect_ExPJ_NL := a4 * b
+  indirect_GPJ_NL := a5 * b
+
+  # Indirect effects through SPJ on non_norm_leg (NNL)
+  indirect_VC1_NNL := a1 * e
+  indirect_VC2_NNL := a2 * e
+  indirect_LC_NNL := a3 * e
+  indirect_ExPJ_NNL := a4 * e
+  indirect_GPJ_NNL := a5 * e
+
+  # Moderation effects on specific_pj (SPJ)
+  interaction_VC1_ExPJ_SPJ := i1 * b
+  interaction_VC2_ExPJ_SPJ := i2 * b
+'
+
+# Fit the revised path model with moderation
+fit_mod <- sem(model_spec_mod, data = df)
+
+# Summarize the results with standardized estimates and fit measures
+summary_fit_mod <- summary(fit_mod, standardized = TRUE, fit.measures = TRUE)
+print(summary_fit_mod)
+
+# Obtain detailed fit indices
+fit_measures_mod <- fitMeasures(fit_mod)
+print(fit_measures_mod)
+
+# Extract path coefficients and significance levels
+parameter_estimates_mod <- parameterEstimates(fit_mod, standardized = TRUE)
+
+# Extract significant pathways (p < 0.05)
+significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue < 0.05)
+
+# Create node list including interaction terms
+nodes_mod <- data.frame(
+  name = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "SPJ", "NL", "NNL", "ExPJ", "SDS", "Male", "VC1_ExPJ", "VC2_ExPJ", 
+           "Reg"),
+  label = c("Neutral Video", "Positive Video", "Police Effective",
+            "Distributive Justice", "Legal Cynicism", "Global PJ",
+            "Specific PJ", "Normative Legitimacy", "Non-normative Legitimacy", "Expected PJ", "SDS", "Male", 
+            "VC1 * ExPJ", "VC2 * ExPJ", "Region")
+)
+
+# Create edge list with colors based on significance
+edges_mod <- significant_paths_mod %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = ifelse(pvalue < 0.05, "red", "black"),
+    size = ifelse(pvalue < 0.05, 1.5, 1)
+  )
+
+# Combine non-significant paths for comparison
+non_significant_paths_mod <- parameter_estimates_mod %>%
+  dplyr::filter(op == "~" & pvalue >= 0.05) %>%
+  transmute(
+    from = rhs,  # Reverse the direction (outcomes to predictors)
+    to = lhs,    # Reverse the direction (outcomes to predictors)
+    label = round(std.all, 2),  # Corrected column name
+    color = "black",
+    size = 1
+  )
+
+# Combine significant and non-significant edges
+edges_mod <- dplyr::bind_rows(edges_mod, non_significant_paths_mod)
+
+# Define custom layout for the graph including interaction terms
+layout_mod <- get_layout(
+  "", "VC1_ExPJ", "VC2_ExPJ", "", "",
+  "VC1", "", "", "SPJ", "",
+  "VC2", "", "", "", "",
+  "GPJ", "", "", "", "NL",
+  "ExPJ", "", "", "", "",
+  "LC", "", "", "", "NNL",
+  "", "", "", "", "",
+  "PE", "DJ", "", "Male", "SDS",
+  rows = 8
+)
+
+# Create and plot the graph
+graph_mod <- graph_sem(nodes = nodes_mod, edges = edges_mod, layout = layout_mod)
+plot(graph_mod,
+     rect.width = 5,
+     rect.height = 2,
+     edge.label.cex = 0.8,
+     node.label.cex = 0.8,
+     node.color = "lightblue",
+     node.frame.color = "black",
+     node.shape = "rectangle",
+     title = "Path Analysis Model with Updated Variables")
+
+# Create a table for the legend
+legend_table_mod <- data.frame(
+  Abbreviation = c("VC1", "VC2", "PE", "DJ", "LC", "GPJ", "SPJ", "NL", "NNL", "ExPJ", "SDS", "Male", "VC1_ExPJ", "VC2_ExPJ"),
+  Full_Name = c("Neutral Video", "Positive Video", "Police Effectiveness",
+                "Distributive Justice", "Legal Cynicism", "Global PJ",
+                "Specific PJ", "Normative Legitimacy", "Non-normative Legitimacy",
+                "Expected PJ", "SDS", "Male", 
+                "Neut Vid * ExPJ", "Pos Vid * ExPJ")
+)
+
+# Display the tables side by side
+legend_table_html_mod <- legend_table_mod %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  as.character()
+
+significant_paths_html_mod <- significant_paths_mod %>%
+  dplyr::select(lhs, rhs, std.all, pvalue) %>%
+  rename(From = rhs, To = lhs, Std_Estimate = std.all, P_Value = pvalue) %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  add_header_above(c("Significant Pathways" = 4)) %>%
+  as.character()
+
+# Use HTML to display tables side by side
+HTML(paste0('<div style="display: flex; flex-direction: row;">',
+            '<div style="margin-right: 20px;">', legend_table_html_mod, '</div>',
+            '<div>', significant_paths_html_mod, '</div>',
+            '</div>'))
+```
+
+# Ranked PJ
+
+```{r, echo=FALSE, warning=FALSE}
+# Extract the relevant columns and convert to long format
+df_long <- df %>%
+  dplyr::select(starts_with("rank_pj_")) %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "rank_position", values_to = "behavior") %>%
+  dplyr::mutate(rank_position = as.numeric(sub("rank_pj_", "", rank_position)))
+
+# Abbreviated descriptions for behaviors with one decimal point
+behavior_labels <- c(
+  "1.0" = "Polite Greeting",
+  "2.0" = "Explain Interaction",
+  "3.0" = "Appropriate Title/Name",
+  "4.0" = "Thank for Cooperation",
+  "5.0" = "Explain Legal Process",
+  "6.0" = "Consequences of Non-compliance",
+  "7.0" = "Polite Goodbye",
+  "8.0" = "Ask for Info/Viewpoint",
+  "9.0" = "Decision After Info",
+  "10.0" = "Explain Policy",
+  "11.0" = "Explain Resolution",
+  "12.0" = "Offer Comfort/Reassurance",
+  "13.0" = "Provide Advice",
+  "14.0" = "How to File Complaint"
+)
+
+# Convert numeric values in behavior column to abbreviated descriptions
+df_long <- df_long %>%
+  dplyr::mutate(behavior = dplyr::recode(behavior, !!!behavior_labels))
+
+# Remove NA values
+df_long <- df_long %>% dplyr::filter(!is.na(behavior))
+
+# Calculate the frequency of each behavior in each rank position
+behavior_summary <- df_long %>%
+  dplyr::group_by(rank_position, behavior) %>%
+  dplyr::summarize(frequency = n()) %>%
+  dplyr::ungroup()
+
+# Calculate total frequency for each rank position
+total_frequency <- behavior_summary %>%
+  dplyr::group_by(rank_position) %>%
+  dplyr::summarize(total = sum(frequency)) %>%
+  dplyr::ungroup()
+
+# Create separate plots for each rank position
+plots <- list()
+for (i in 1:14) {
+  plot_data <- dplyr::filter(behavior_summary, rank_position == i)
+  total_count <- dplyr::filter(total_frequency, rank_position == i)$total
+  plot <- ggplot(plot_data, aes(x = behavior, y = frequency)) +
+    geom_bar(stat = "identity", fill = "#008080") +
+    geom_text(aes(label = frequency), hjust = -0.2, color = "black") + # Adjust hjust for right offset
+    coord_flip() + # Flip the coordinates for horizontal bars
+    labs(title = paste("Frequency of Each Behavior in Rank Position", i),
+         subtitle = paste("Total Frequency:", total_count),
+         x = "Behavior",
+         y = "Frequency") +
+    theme_minimal() +
+    theme(axis.text.y = element_text(size = 8))
+  
+  plots[[i]] <- plot
+}
+
+# Print all plots
+for (plot in plots) {
+  print(plot)
+}
+```
+
+# Memory
+
+<span style="font-size:18px;">Video condition 0 = Negative video
+
+<span style="font-size:18px;">Video condition 1 = Neutral video
+
+<span style="font-size:18px;">Video condition 2 = Positive video 
+
+```{r, echo=FALSE, warning=FALSE}
+# Abbreviated descriptions for behaviors (using a different object name)
+memory_labels <- c(
+  "The officer opens with a polite greeting" = "Polite Greeting",
+  "The officer explains why they are interacting with the citizen" = "Explain Interaction",
+  "The officer calls the citizen by an appropriate title/name" = "Appropriate Title/Name",
+  "The officer thanks the citizen for your cooperation" = "Thank for Cooperation",
+  "The officer explains how to proceed in the legal process" = "Explain Legal Process",
+  "The officer explains the consequences of non-compliance" = "Consequences of Non-compliance",
+  "The officer says goodbye to the citizen in a polite manner" = "Polite Goodbye",
+  "The officer asked the citizen to provide information/viewpoint" = "Ask for Info/Viewpoint",
+  "The officer indicated he would not make a decision about what to do until s/he had gathered all the necessary information" = "Decision After Info",
+  "The officer explains the policy regarding their actions" = "Explain Policy",
+  "The officer explained why s/he chose to resolve the situation as s/he did" = "Explain Resolution",
+  "The officer offered comfort or reassurance to this citizen" = "Offer Comfort/Reassurance",
+  "The officer provided or promised to provide advice handling the situation/problem" = "Provide Advice",
+  "The officer indicates how citizen can file a complaint" = "How to File Complaint"
+)
+
+# Extract the necessary columns and split the memo column into multiple rows
+df_memory_long <- df %>%
+  dplyr::select(memo, video_condition) %>%
+  tidyr::separate_rows(memo, sep = ",") %>%
+  dplyr::mutate(memo = trimws(memo)) %>%
+  dplyr::mutate(behavior = dplyr::recode(memo, !!!memory_labels))
+
+# Remove NA values
+df_memory_long <- df_memory_long %>% dplyr::filter(!is.na(behavior))
+
+# Calculate the frequency of each behavior for each video condition
+behavior_summary_memory <- df_memory_long %>%
+  dplyr::group_by(video_condition, behavior) %>%
+  dplyr::summarize(frequency = n()) %>%
+  dplyr::ungroup()
+
+# Create separate plots for each video condition
+plots <- list()
+video_conditions <- unique(df$video_condition)
+for (cond in video_conditions) {
+  plot_data <- dplyr::filter(behavior_summary_memory, video_condition == cond)
+  plot <- ggplot(plot_data, aes(x = reorder(behavior, frequency), y = frequency)) +
+    geom_bar(stat = "identity", fill = "#008080") +
+    geom_text(aes(label = frequency), hjust = -0.2, color = "black") + # Adjust hjust for right offset
+    coord_flip() + # Flip the coordinates for horizontal bars
+    labs(title = paste("Frequency of Memory Responses for Video Condition", cond),
+         x = "Memory",
+         y = "Frequency") +
+    theme_minimal() +
+    theme(axis.text.y = element_text(size = 8))
+  
+  plots[[as.character(cond)]] <- plot
+}
+
+# Print all plots
+for (cond in video_conditions) {
+  print(plots[[as.character(cond)]])
+}
+```
+
+
+# Text Analysis
+
+## Analysis for Condition 0
+```{r, echo=FALSE, warning=FALSE}
+# Create a DTM for the combined responses to the first question
+dtm_quest1 <- CreateDtm(doc_vec = df_text0$combined_quest1,
+                        doc_names = rownames(df_text0),
+                        ngram_window = c(1, 2))
+
+# Create a DTM for the responses to the second question
+dtm_quest2 <- CreateDtm(doc_vec = df_text0$open_quest2,
+                        doc_names = rownames(df_text0),
+                        ngram_window = c(1, 2))
+
+# Topic Modeling for Question 1
+lda_model_quest1 <- FitLdaModel(dtm = dtm_quest1, 
+                                k = 5,  # Number of topics
+                                iterations = 200, 
+                                burnin = 50, 
+                                alpha = 0.1, 
+                                beta = 0.05)
+
+# Plot the top terms for each topic for Question 1
+top_terms_quest1 <- GetTopTerms(lda_model_quest1$phi, 10)
+top_terms_quest1 <- data.frame(topic = rep(1:5, each = 10), term = as.vector(t(top_terms_quest1)))
+
+ggplot(top_terms_quest1, aes(x = reorder(term, -topic), y = topic)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Top Terms for Each Topic in Question 1 - Condition 0",
+       x = "Terms",
+       y = "Topics") +
+  theme_minimal()
+
+# Topic Modeling for Question 2
+lda_model_quest2 <- FitLdaModel(dtm = dtm_quest2, 
+                                k = 5,  # Number of topics
+                                iterations = 200, 
+                                burnin = 50, 
+                                alpha = 0.1, 
+                                beta = 0.05)
+
+# Plot the top terms for each topic for Question 2
+top_terms_quest2 <- GetTopTerms(lda_model_quest2$phi, 10)
+top_terms_quest2 <- data.frame(topic = rep(1:5, each = 10), term = as.vector(t(top_terms_quest2)))
+
+ggplot(top_terms_quest2, aes(x = reorder(term, -topic), y = topic)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Top Terms for Each Topic in Question 2 - Condition 0",
+       x = "Terms",
+       y = "Topics") +
+  theme_minimal()
+
+# Convert combined text data to a tidy format
+tidy_text_quest1 <- df_text0 %>%
+  unnest_tokens(word, combined_quest1)
+
+tidy_text_quest2 <- df_text0 %>%
+  unnest_tokens(word, open_quest2)
+
+# Perform sentiment analysis using the "bing" lexicon
+sentiment_quest1 <- tidy_text_quest1 %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(document = row_number(), sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+sentiment_quest2 <- tidy_text_quest2 %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(document = row_number(), sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+# Debugging: Print intermediate sentiment data
+print(head(sentiment_quest1))
+print(head(sentiment_quest2))
+
+# Summary statistics for sentiment scores
+summary(sentiment_quest1$sentiment)
+summary(sentiment_quest2$sentiment)
+
+# Histogram of sentiment scores for Question 1
+ggplot(sentiment_quest1, aes(x = sentiment)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black") +
+  labs(title = "Histogram of Sentiment Scores for Question 1 - Condition 0",
+       x = "Sentiment Score",
+       y = "Frequency") +
+  theme_minimal()
+
+# Histogram of sentiment scores for Question 2
+ggplot(sentiment_quest2, aes(x = sentiment)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black") +
+  labs(title = "Histogram of Sentiment Scores for Question 2 - Condition 0",
+       x = "Sentiment Score",
+       y = "Frequency") +
+  theme_minimal()
+
+# Plot the sentiment scores for Question 1
+ggplot(sentiment_quest1, aes(x = document, y = sentiment)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sentiment Scores for Question 1 - Condition 0",
+       x = "Document",
+       y = "Sentiment Score") +
+  theme_minimal()
+
+# Plot the sentiment scores for Question 2
+ggplot(sentiment_quest2, aes(x = document, y = sentiment)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sentiment Scores for Question 2 - Condition 0",
+       x = "Document",
+       y = "Sentiment Score") +
+  theme_minimal()
+
+# Text ExPJprocessing for Word Cloud
+tokens_clean_quest1 <- tidy_text_quest1 %>%
+  anti_join(get_stopwords()) %>%
+  mutate(word = wordStem(word, language = "en"))
+
+tokens_clean_quest2 <- tidy_text_quest2 %>%
+  anti_join(get_stopwords()) %>%
+  mutate(word = wordStem(word, language = "en"))
+
+# Word Cloud for Question 1
+tokens_flat_quest1 <- tokens_clean_quest1$word
+term_freq_quest1 <- table(tokens_flat_quest1)
+
+wordcloud(names(term_freq_quest1), term_freq_quest1, max.words = 100, random.order = FALSE, colors = brewer.pal(8, "Dark2"))
+
+# Word Cloud for Question 2
+tokens_flat_quest2 <- tokens_clean_quest2$word
+term_freq_quest2 <- table(tokens_flat_quest2)
+
+wordcloud(names(term_freq_quest2), term_freq_quest2, max.words = 100, random.order = FALSE, colors = brewer.pal(8, "Dark2"))
+```
+
+## Analysis for Condition 1
+
+```{r, echo=FALSE, warning=FALSE}
+# Create a DTM for the combined responses to the first question
+dtm_quest1 <- CreateDtm(doc_vec = df_text1$combined_quest1,
+                        doc_names = rownames(df_text1),
+                        ngram_window = c(1, 2))
+
+# Create a DTM for the responses to the second question
+dtm_quest2 <- CreateDtm(doc_vec = df_text1$open_quest2,
+                        doc_names = rownames(df_text1),
+                        ngram_window = c(1, 2))
+
+# Topic Modeling for Question 1
+lda_model_quest1 <- FitLdaModel(dtm = dtm_quest1, 
+                                k = 5,  # Number of topics
+                                iterations = 200, 
+                                burnin = 50, 
+                                alpha = 0.1, 
+                                beta = 0.05)
+
+# Plot the top terms for each topic for Question 1
+top_terms_quest1 <- GetTopTerms(lda_model_quest1$phi, 10)
+top_terms_quest1 <- data.frame(topic = rep(1:5, each = 10), term = as.vector(t(top_terms_quest1)))
+
+ggplot(top_terms_quest1, aes(x = reorder(term, -topic), y = topic)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Top Terms for Each Topic in Question 1 - Condition 1",
+       x = "Terms",
+       y = "Topics") +
+  theme_minimal()
+
+# Topic Modeling for Question 2
+lda_model_quest2 <- FitLdaModel(dtm = dtm_quest2, 
+                                k = 5,  # Number of topics
+                                iterations = 200, 
+                                burnin = 50, 
+                                alpha = 0.1, 
+                                beta = 0.05)
+
+# Plot the top terms for each topic for Question 2
+top_terms_quest2 <- GetTopTerms(lda_model_quest2$phi, 10)
+top_terms_quest2 <- data.frame(topic = rep(1:5, each = 10), term = as.vector(t(top_terms_quest2)))
+
+ggplot(top_terms_quest2, aes(x = reorder(term, -topic), y = topic)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Top Terms for Each Topic in Question 2 - Condition 1",
+       x = "Terms",
+       y = "Topics") +
+  theme_minimal()
+
+# Convert combined text data to a tidy format
+tidy_text_quest1 <- df_text1 %>%
+  unnest_tokens(word, combined_quest1)
+
+tidy_text_quest2 <- df_text1 %>%
+  unnest_tokens(word, open_quest2)
+
+# Perform sentiment analysis using the "bing" lexicon
+sentiment_quest1 <- tidy_text_quest1 %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(document = row_number(), sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+sentiment_quest2 <- tidy_text_quest2 %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(document = row_number(), sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+# Plot the sentiment scores for Question 1
+ggplot(sentiment_quest1, aes(x = document, y = sentiment)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sentiment Scores for Question 1 - Condition 1",
+       x = "Document",
+       y = "Sentiment Score") +
+  theme_minimal()
+
+# Plot the sentiment scores for Question 2
+ggplot(sentiment_quest2, aes(x = document, y = sentiment)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sentiment Scores for Question 2 - Condition 1",
+       x = "Document",
+       y = "Sentiment Score") +
+  theme_minimal()
+
+# Word Cloud for Question 1
+tokens_clean_quest1 <- tidy_text_quest1 %>%
+  anti_join(get_stopwords()) %>%
+  mutate(word = wordStem(word, language = "en"))
+
+tokens_flat_quest1 <- tokens_clean_quest1$word
+term_freq_quest1 <- table(tokens_flat_quest1)
+
+wordcloud(names(term_freq_quest1), term_freq_quest1, max.words = 100, random.order = FALSE, colors = brewer.pal(8, "Dark2"))
+
+# Word Cloud for Question 2
+tokens_clean_quest2 <- tidy_text_quest2 %>%
+  anti_join(get_stopwords()) %>%
+  mutate(word = wordStem(word, language = "en"))
+
+tokens_flat_quest2 <- tokens_clean_quest2$word
+term_freq_quest2 <- table(tokens_flat_quest2)
+
+wordcloud(names(term_freq_quest2), term_freq_quest2, max.words = 100, random.order = FALSE, colors = brewer.pal(8, "Dark2"))
+```
+
+## Analysis for Condition 2
+
+```{r, echo=FALSE, warning=FALSE}
+# Create a DTM for the combined responses to the first question
+dtm_quest1 <- CreateDtm(doc_vec = df_text2$combined_quest1,
+                        doc_names = rownames(df_text2),
+                        ngram_window = c(1, 2))
+
+# Create a DTM for the responses to the second question
+dtm_quest2 <- CreateDtm(doc_vec = df_text2$open_quest2,
+                        doc_names = rownames(df_text2),
+                        ngram_window = c(1, 2))
+
+# Topic Modeling for Question 1
+lda_model_quest1 <- FitLdaModel(dtm = dtm_quest1, 
+                                k = 5,  # Number of topics
+                                iterations = 200, 
+                                burnin = 50, 
+                                alpha = 0.1, 
+                                beta = 0.05)
+
+# Plot the top terms for each topic for Question 1
+top_terms_quest1 <- GetTopTerms(lda_model_quest1$phi, 10)
+top_terms_quest1 <- data.frame(topic = rep(1:5, each = 10), term = as.vector(t(top_terms_quest1)))
+
+ggplot(top_terms_quest1, aes(x = reorder(term, -topic), y = topic)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Top Terms for Each Topic in Question 1 - Condition 2",
+       x = "Terms",
+       y = "Topics") +
+  theme_minimal()
+
+# Topic Modeling for Question 2
+lda_model_quest2 <- FitLdaModel(dtm = dtm_quest2, 
+                                k = 5,  # Number of topics
+                                iterations = 200, 
+                                burnin = 50, 
+                                alpha = 0.1, 
+                                beta = 0.05)
+
+# Plot the top terms for each topic for Question 2
+top_terms_quest2 <- GetTopTerms(lda_model_quest2$phi, 10)
+top_terms_quest2 <- data.frame(topic = rep(1:5, each = 10), term = as.vector(t(top_terms_quest2)))
+
+ggplot(top_terms_quest2, aes(x = reorder(term, -topic), y = topic)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Top Terms for Each Topic in Question 2 - Condition 2",
+       x = "Terms",
+       y = "Topics") +
+  theme_minimal()
+
+# Convert  text data to a tidy format
+tidy_text_quest1 <- df_text2 %>%
+  unnest_tokens(word, combined_quest1)
+
+tidy_text_quest2 <- df_text2 %>%
+  unnest_tokens(word, open_quest2)
+
+# Perform sentiment analysis using the "bing" lexicon
+sentiment_quest1 <- tidy_text_quest1 %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(document = row_number(), sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+sentiment_quest2 <- tidy_text_quest2 %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(document = row_number(), sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+# Plot the sentiment scores for Question 1
+ggplot(sentiment_quest1, aes(x = document, y = sentiment)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sentiment Scores for Question 1 - Condition 2",
+       x = "Document",
+       y = "Sentiment Score") +
+  theme_minimal()
+
+# Plot the sentiment scores for Question 2
+ggplot(sentiment_quest2, aes(x = document, y = sentiment)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sentiment Scores for Question 2 - Condition 2",
+       x = "Document",
+       y = "Sentiment Score") +
+  theme_minimal()
+
+# Text ExPJprocessing for Word Cloud
+tokens_clean_quest1 <- tidy_text_quest1 %>%
+  anti_join(get_stopwords()) %>%
+  mutate(word = wordStem(word, language = "en"))
+
+tokens_clean_quest2 <- tidy_text_quest2 %>%
+  anti_join(get_stopwords()) %>%
+  mutate(word = wordStem(word, language = "en"))
+
+# Word Cloud for Question 1
+tokens_flat_quest1 <- tokens_clean_quest1$word
+term_freq_quest1 <- table(tokens_flat_quest1)
+
+wordcloud(names(term_freq_quest1), term_freq_quest1, max.words = 100, random.order = FALSE, colors = brewer.pal(8, "Dark2"))
+
+# Word Cloud for Question 2
+tokens_flat_quest2 <- tokens_clean_quest2$word
+term_freq_quest2 <- table(tokens_flat_quest2)
+
+wordcloud(names(term_freq_quest2), term_freq_quest2, max.words = 100, random.order = FALSE, colors = brewer.pal(8, "Dark2"))
+```
+
+# Variable List
+
+```{r, echo=FALSE, warning=FALSE}
+# Data frame with variable names and descriptions
+variable_descriptions <- data.frame(
+  Variable = c("1. Duration", "2. dist_just1", "3. dist_just2", "4. dist_just3", "5. dist_just4", 
+    "6. dist_just5", "7. pol_effect1", "8. pol_effect2", "9. pol_effect3", 
+    "10. leg_cyn1R", "11. leg_cyn2", "12. leg_cyn3", "13. leg_cyn4R", "14. leg_cyn5", 
+    "15. expected_pj1", "16. expected_pj2", "17. expected_pj3", "18. expected_pj4", 
+    "19. expected_pj5", "20. expected_pj6", "21. global_pj1", "22. global_pj2", "23. global_pj3", 
+    "24. global_pj4", "25. global_pj5", "26. global_pj6", 
+    "27. specific_pj1", "28. specific_pj2", "29. specific_pj3", "30. specific_pj4", 
+    "31. specific_pj5", "32. specific_pj6", "33. open_quest1_4", "34. open_quest1_5", 
+    "35. open_quest1_6", "36. open_quest1_7", "37. open_quest1_8", "38. open_quest2", 
+    "39. SDS1R", "40. SDS2", "41. SDS3", "42. SDS4R", "43. SDS5", "44. SDS6R", "45. SDS7R", "46. SDS8", 
+    "47. SDS9", "48. SDS10", "49. SDS11R", "50. SDS12", "51. SDS13", "52. SDS14", "53. SDS15R", 
+    "54. SDS16", "55. SDS17R", "56. norm_leg1", "57. norm_leg2", "58. norm_leg3", "59. norm_leg4", 
+    "60. norm_leg5", "61. nonnorm_leg1", "62. nonnorm_leg2", "63. nonnorm_leg3", 
+    "64. nonnorm_leg4", "65. nonnorm_leg5", "66. BSC1", "67. BSC2R", "68. BSC3R", "69. BSC4R", 
+    "70. BSC5R", "71. BSC6", "72. BSC7R", "73. BSC8", "74. BSC9R", "75. BSC10R", "76. BSC11", 
+    "77. BSC12R", "78. BSC13R", "79. closed_expect1", "80. closed_expect2", "81. rank_pj_1", 
+    "82. rank_pj_2", "83. rank_pj_3", "84. rank_pj_4", "85. rank_pj_5", "86. rank_pj_6", 
+    "87. rank_pj_7", "88. rank_pj_8", "89. rank_pj_9", "90. rank_pj_10", "91. rank_pj_11", 
+    "92. rank_pj_12", "93. rank_pj_13", "94. rank_pj_14", "95. memo", "96. over_fair", 
+    "97. Male", "98. Male_other", "99. Male_split", "100. ethnicity", "101. race", "102. race_other", "103. race_split", "104. income", 
+    "105. educ", "106. occup", "107. married", "108. region", "109. region_split", "110. community", "111. community_split", "112. pol_orient", 
+    "113. pol_scale", "114. homeown", "115. homeown_length", "116. citizen", "117. fluency", 
+    "118. pol_fam", "119. pol_contact", "120. pol_encounters", "121. pol_type", "122. arrested", 
+    "123. arrested_time", "124. victim_1", "125. victim_2", "126. victim_3", "127. victim_4", 
+    "128. victim_5", "129. victim_6", "130. victim_other", "131. check1", "132. check2", "133. check3", 
+    "134. PROLIFIC_PID", "135. age", "136. SES", "137. video_condition", "138. dist_just", "139. pol_effect", 
+"140. legal_cyn", "141. expected_pj", "142. global_pj", "143. specific_pj", 
+"144. SDS", "145. norm_leg", "146. nonnorm_leg", "147. BSC", "148. diff1", 
+"149. diff2", "150. diff3", "151. diff4", "152. diff5", "153. diff6", 
+"154. diff_scores", "155. global_pj_cent", "156. expected_pj_cent", 
+"157. video_cond", "158. expected_pj_c", "159. global_pj_c", "160. video_condition_1", 
+"161. video_condition_2", "162. VC1", "163. VC2", "164. PE", "165. DJ", 
+"166. LC", "167. GPJ", "168. SPJ", "169. NL", "170. NNL", "171. ExPJ", "172. VC1_GPJ", 
+"173. VC2_GPJ", "174. arrest", "175. VC1_ExPJ", "176. VC2_ExPJ"),
+  Description = c("Duration (in seconds))", 
+                  "The police provide the same level of security to all community members. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police provide the same quality of service to all community members. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police enforce the law consistently when dealing with all community members. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police deploy their resources in this city in an equitable manner. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police ensure that everyone has equal access to the services they provide. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police do a good job working together with neighborhood residents to reduce crime (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police do a good job dealing with neighborhood problems (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police do a good job ExPJventing crime (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "Laws protect everyone equally (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "People with money and power can get away with anything (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "Politicians only care about getting re-elected (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "Anyone can get ahead if they try hard enough (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "Powerful people use laws to disadvantage individuals who do not have any power (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I expect the police to treat drivers with dignity and respect (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I expect the police to be polite when dealing with drivers (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I expect the police to be fair when making decisions with drivers (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I expect the police to give drivers the opportunity to exExPJss their views (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I expect the police to listen to drivers during stops (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I expect the police to make decisions based upon facts (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police treat people with dignity and respect (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police treat people with politeness (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police are fair when making decisions (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police give people the opportunity to exExPJss their views (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police take time to listen to people when they stop them (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police make decisions based upon facts (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police officer treated the driver with dignity and respect (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police officer was polite when dealing with the driver (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police officer was fair when making the decision to the driver (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police officer gave the driver the opportunity to exExPJss their views (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police officer listened to the driver during the stop (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The police officer made decisions based upon facts (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "Please identify and describe up to five specific behaviors demonstrated by the officer in the video. - 1st response", 
+                  "Please identify and describe up to five specific behaviors demonstrated by the officer in the video. - 2nd response", 
+                  "Please identify and describe up to five specific behaviors demonstrated by the officer in the video. - 3rd response", 
+                  "Please identify and describe up to five specific behaviors demonstrated by the officer in the video. - 4th response", 
+                  "Please identify and describe up to five specific behaviors demonstrated by the officer in the video. - 5th response", 
+                  "Overall, do you consider the outcome in the video to be just or unjust? Please explain why.", 
+                  "I sometimes litter. (False = 0, True = 1)", 
+                  "I always admit my mistakes openly and face the potential negative consequences. (False = 0, True = 1)", 
+                  "In traffic I am always polite and considerate of others. (False = 0, True = 1)", 
+                  "I have tried illegal drugs (for example, marijuana, cocaine, etc.). (False = 0, True = 1)", 
+                  "I always accept others' opinions, even when they don't agree with my own. (False = 0, True = 1)", 
+                  "I take out my bad moods on others now and then. (False = 0, True = 1)", 
+                  "There has been an occasion when I took advantage of someone else. (False = 0, True = 1)", 
+                  "In conversations I always listen attentively and let others finish their sentences. (False = 0, True = 1)", 
+                  "I never hesitate to help someone in case of emergency. (False = 0, True = 1)", 
+                  "When I have made a promise, I keep it--no ifs, ands or buts. (False = 0, True = 1)", 
+                  "I occasionally speak badly of others behind their back. (False = 0, True = 1)", 
+                  "I would never live off other people. (False = 0, True = 1)", 
+                  "I always stay friendly and courteous with other people, even when I am stressed out. (False = 0, True = 1)", 
+                  "During arguments I always stay objective and matter-of-fact. (False = 0, True = 1)", 
+                  "There has been at least one occasion when I failed to return an item that I borrowed. (False = 0, True = 1)", 
+                  "I always eat a healthy diet. (False = 0, True = 1)", 
+                  "Sometimes I only help because I expect something in return. (False = 0, True = 1)", 
+                  "I would feel a moral obligation to obey the police. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I would feel a moral duty to obey the instructions of the police officer even if I don’t understand the reasons behind them. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I would feel a moral duty to support the decisions of the police officer, even if I disagree with them. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I would do what the police officer told me to do because I believe it is the right thing to do. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I believe that the proper thing to do is to accept the decisions that the police officer makes. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "People like me have no choice but to obey the police officer. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "If I didn't do what the police officer told me, he would treat me badly. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I would only obey the police officer because I am afraid of him. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "The main reason I would obey the police officer is because I am scared of getting in trouble. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I would do what the police officer tells me because I fear how he would react if I didn't. (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)", 
+                  "I am good at resisting temptation. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "I have a hard time breaking bad habits. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "I am lazy. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "I say inappropriate things. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "I do certain things that are bad for me, if they are fun. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "I refuse things that are bad for me. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "I wish I had more self-discipline. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "People would say that I have iron self-discipline. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "Pleasure and fun sometimes keep me from getting work done. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "I have trouble concentrating. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "I am able to work effectively toward long-term goals. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "Sometimes I can’t stop myself from doing something, even if I know it is wrong. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "I often act without thinking through all the alternatives. (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)", 
+                  "How would characterize the police officer's behavior in the video.", 
+                  "Think back to the behavior you expected from the police. How much did the officer act as expected?", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer opens with a polite greeting", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer explains why they are interacting with the citizen", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer calls the citizen by an appropriate title/name", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer thanks the citizen for your cooperation", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer explains how to proceed in the legal process", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer explains the consequences of non-compliance", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer says goodbye to the citizen in a polite manner", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer asked the citizen to provide information/viewpoint", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer indicated he would not make a decision about what to do until s/he had gathered all the necessary information", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer explains the policy regarding their actions", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer explained why s/he chose to resolve the situation as s/he did", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer offered comfort or reassurance to this citizen", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer provided or promised to provide advice handling the situation/problem", 
+                  "With regards to how the police treat people, please rank the following items in terms of importance, from 'most important' to 'least important' - The officer indicates how citizen can file a complaint", 
+                  "Please specify which behaviors listed below you recall the officer exhibiting during the video you watched.", 
+                  "Overall, how fair or unfair was the interaction?", "What is your Gender? (Male = 1, Female = 0, Other = 0)", 
+                  "If you answered 'other' to Gender, please specify.",
+                  "Gender was dichotomized (Male = 1, All else = 0)",
+                  "Are you of Hispanic, Latino, or Spanish origin? (No = 0, Yes, Mexican, Mexican American, Chicano = 1, Yes, Puerto Rican = 2, Yes, Cuban = 3, Yes, other Hispanic, Latino, or Spanish origin = 4)", 
+                  "What is your race? (select all that apply) (White = 0, Black or African American = 1, American Indian or Alaska Native = 2, Asian = 3, Middle Eastern = 4, Pacific Islander = 5, Other = 6)", 
+                  "If you answered 'other' to race, please specify", "Race was dichotomized (White = 0, All else = 1)", "What is the yearly household income level? (Less than $34,999 = 0, $35k-$49,999 = 1, $50,000-$74,999 = 2, $75k,000-$99,999 = 3, $100k or more = 4)", 
+                  "What is the highest level of education you reached? (Less than high school = 0, High school or equivalent diploma, some college, or associate’s degree = 1, Bachelor’s degree = 2, Master’s, professional, or doctoral degree = 3)", 
+                  "How would you classify your current occupation in the scale below? (Unemployed = 0, Unskilled manual labor = 1, Skilled manual labor = 2, Professional labor = 3)", 
+                  "What is your marital status? (Never married = 0, Not married, but in long term relationship = 1, Married = 2, Divorced = 3, Widowed = 4)", 
+                  "Identify the area of the country where you currently live. (Northeast = 0, Midwest = 1, West = 2, South = 3)",
+                  "Region was dichotomized (South = 1, Northeast, Midwest, & West = 0)",
+                  "Select the option that best describes the community where you live. (Urban = 0, Suburban = 1, Rural = 2)",
+                  "Community type was dichotomized (Rural = 1, Urban & Suburban = 0)",
+                  "Generally speaking, do you consider yourself a part of one of the political parties listed below? (Democrat = 0, Republican = 1, Independent = 2, Socialist = 3, Libertarian = 4, Something else = 5, I do not identify with any political party = 6)", 
+                  "Where would you place yourself on the following scale. (Very conservative = 0, Conservative = 1, Slightly conservative = 2, Centrist = 3, Slightly Liberal = 4, Liberal = 5, Very Liberal = 6)", 
+                  "Are you a homeowner or renter? (Renter = 0, Homeowner = 1)", 
+                  "How long have you lived in your current home?", "Are you a citizen of the United States? (No = 0, Yes = 1)", 
+                  "Are you fluent in English?", 
+                  "Is there anyone close to you who is a police officer (i.e., family, friends, intimate partner)? (No = 0, Yes = 1)", 
+                  "Have you had any personal contact with the police in the past 12 months?", 
+                  "Please estimate how many encounters have you had with the police in your lifetime?", 
+                  "Please think about that contact or if there was more than one contact, the most recent one. Which of the following best describes your contact with the police? (I called the police to report a crime = 0, I called the police to report an accident = 1, I called the police to request information = 2, I was pulled over by the police while I was driving = 3, Something else = 4)", 
+                  "Have you ever been arrested before? (No = 0, Yes = 1)", "If 'Yes', how long ago was your (last) arrest?", 
+                  "Using the scale provided below, please tell us whether you have been a victim of any of the following crimes in the past year. - Assault (an unlawful attack by one person upon another for the purpose of inflicting injury).", 
+                  "Using the scale provided below, please tell us whether you have been a victim of any of the following crimes in the past year. - Burglary (the unlawful entry of a structure to commit a theft).", 
+                  "Using the scale provided below, please tell us whether you have been a victim of any of the following crimes in the past year. - Theft (the unlawful taking of property from the possession of another).", 
+                  "Using the scale provided below, please tell us whether you have been a victim of any of the following crimes in the past year. - Vandalism (the destruction or defacement of property without the consent of the owner).", 
+                  "Using the scale provided below, please tell us whether you have been a victim of any of the following crimes in the past year. - Internet crime (such as consumer fraud, identity theft, or virus)", 
+                  "Using the scale provided below, please tell us whether you have been a victim of any of the following crimes in the past year. - Other (Please specify)", 
+                  "If 'Other', please describe your victimization experience.", "How honest were you in answering the questions? (Not at all honest = 0, A little honest = 1, Moderately honest = 2, Very honest = 3, Completely honest = 4)", 
+                  "When going through the survey, how carefully did you read the questions? (Not carefully at all = 0, Not very carefully = 1, Moderately careful = 2, Carefully = 3, Extremely carefully = 4)", 
+                  "Did the encounter you watched seem realistic? (Definitely not = 0, Probably not = 1, Might or might not = 2, Probably yes = 3, Definitely yes = 4)", 
+                  "PROLIFIC_PID",
+                  "Participant age", "A combined factor for socio-economic status consisting of occupation, education, and income",
+                  "Video conditions: 0 - Negative condition, 1 - Neutral condition, 2 - Positive condition",
+                  "Distributive justice factor (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)",
+                  "Police effectiveness factor (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)",
+                  "Legal cynicism factor (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)",
+                  "Expected PJ factor (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)",
+                  "Global procedural justice factor (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)",
+                  "Specific procedural justice factor (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)",
+                  "Social Desirability scale factor (False = 0, True = 1)",
+                  "Normative legitimacy factor (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)",
+                  "Non-normative legitimacy factor (Strongly disagree = 0, Somewhat disagree = 1, Neither agree nor disagree = 2, Somewhat agree = 3, Strongly agree = 4)",
+                  "Brief self control factor (Not at all = 0, A little = 1, Moderately = 2, Quite a bit = 3, Very much = 4)",
+                  "specific_pj1 - expected_pj1",
+                  "specific_pj1 - expected_pj2",
+                  "specific_pj1 - expected_pj3",
+                  "specific_pj1 - expected_pj4",
+                  "specific_pj1 - expected_pj5",
+                  "specific_pj1 - expected_pj6",
+                  "Difference between Specific_PJ - expected_pj factor",
+                  "Global procedural justice mean centered",
+                  "Expected procedural justice mean centered",
+                  "Video conditions abbreviated",
+                  "Expected procedural justice mean centered and abbreviated",
+                  "Global procedural justice mean centered and abbreviated",
+                  "Neutral condition dummy coded",
+                  "Positive condition dummy coded",
+                  "Video condition 1 abbreviated",
+                  "Video condition 2 abbreviated",
+                  "Police effectiveness abbreviated",
+                  "Distributive justice abbreviated",
+                  "Legal cynicism abbreviated",
+                  "Global procedural justice abbreviated",
+                  "Specific procedural justice abbreviated",
+                  "Normative legitimacy abbreviated",
+                  "Non-normative legitimacy abbreviated",
+                  "Expected procedural justice abbreviated",
+                  "Interaction term of Neutral condition x Global PJ",
+                  "Interaction term of Positive condition x Global PJ",
+                  "Have you been arrested before abbreviated",
+                  "Interaction term of Neutral condition x Expected PJ",
+                  "Interaction term of Positive condition x Expected PJ")
+)
+
+# Generate the knitr table
+kable(variable_descriptions, caption = "Variable Names and Descriptions") %>%
+  kable_styling(full_width = FALSE, position = "left", bootstrap_options = c("striped", "hover", "condensed"))
+
+```
